@@ -6,3 +6,10 @@ __pycache__/
 venv/
 node_modules/
 .next/
+
+# Local database and test/tool caches
+*.db
+.pytest_cache/
+backend/.cache/
+*.db
+*.sqlite3

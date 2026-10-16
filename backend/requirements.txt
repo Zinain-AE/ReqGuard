@@ -1,0 +1,15 @@
+# Web framework and server
+fastapi>=0.115
+uvicorn[standard]>=0.30
+
+# Settings from .env
+pydantic-settings>=2.4
+
+# Database: ORM, migrations, PostgreSQL driver (used once DATABASE_URL points to Supabase)
+sqlalchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.2
+
+# Testing (httpx is needed by FastAPI's TestClient)
+pytest>=8.0
+httpx>=0.27
