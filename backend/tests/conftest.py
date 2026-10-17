@@ -1,0 +1,63 @@
+"""Shared test setup: a fresh in-memory SQLite database for every test, no real .env secrets."""
+
+import os
+
+# Must be set before app.core.config is imported
+os.environ["JWT_SECRET"] = "test-secret-not-for-production-0123456789"
+
+import itertools  # noqa: E402
+
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+import app.models  # noqa: E402, F401  (registers models on Base.metadata)
+from app.core.db import Base, get_db  # noqa: E402
+from app.main import app  # noqa: E402
+
+
+@pytest.fixture
+def db_session_factory():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def override_db(db_session_factory):
+    def _get_test_db():
+        db = db_session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = _get_test_db
+    yield
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+_counter = itertools.count(1)
+
+
+@pytest.fixture
+def make_user(client):
+    """Register and log in a new user; returns (user_json, auth_headers)."""
+
+    def _make(name: str | None = None, password: str = "password123"):
+        n = next(_counter)
+        email = f"user{n}@example.com"
+        res = client.post("/auth/register", json={"name": name or f"User {n}", "email": email, "password": password})
+        assert res.status_code == 201, res.text
+        token = client.post("/auth/login", json={"email": email, "password": password}).json()["access_token"]
+        return res.json(), {"Authorization": f"Bearer {token}"}
+
+    return _make
