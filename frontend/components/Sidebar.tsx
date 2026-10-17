@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getHealth } from "@/lib/api";
+import { ShieldIcon } from "@/components/AuthShell";
+import { getHealth, getMe, logout, type User } from "@/lib/api";
 
 const LINKS = [
   { href: "/projects", label: "Projects" },
@@ -47,8 +48,41 @@ export default function Sidebar() {
         })}
       </nav>
 
+      <UserBox />
       <BackendStatus />
     </aside>
+  );
+}
+
+// Logged-in user's name and a Log out button.
+function UserBox() {
+  const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    getMe()
+      .then(setUser)
+      .catch(() => setUser(null));
+  }, []);
+
+  async function handleLogout() {
+    await logout().catch(() => undefined);
+    router.replace("/login");
+    router.refresh();
+  }
+
+  return (
+    <div className="border-t border-white/10 px-5 py-4">
+      {user && (
+        <div className="mb-2 min-w-0">
+          <p className="truncate text-sm font-medium text-zinc-200">{user.name}</p>
+          <p className="truncate text-xs text-zinc-500">{user.email}</p>
+        </div>
+      )}
+      <button onClick={handleLogout} className="text-xs text-zinc-400 transition hover:text-zinc-100">
+        Log out
+      </button>
+    </div>
   );
 }
 
@@ -69,14 +103,5 @@ function BackendStatus() {
       <span className={`h-2 w-2 rounded-full ${color}`} />
       Backend {state}
     </div>
-  );
-}
-
-function ShieldIcon() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Z" fill="#F59E0B" />
-      <path d="m8.5 12 2.5 2.5 4.5-5" stroke="#18181B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
