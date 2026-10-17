@@ -1,10 +1,11 @@
-"""FastAPI entry point. Routers from app/api/ are added here in later steps."""
+"""FastAPI entry point: middleware, routers from app/api/ and the health check."""
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.api import auth, projects, team
 from app.core.config import settings
 from app.core.db import get_db
 
@@ -18,6 +19,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth.router)
+app.include_router(projects.router)
+app.include_router(team.router)
 
 
 @app.get("/health")
