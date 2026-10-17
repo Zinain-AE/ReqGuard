@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     google_client_secret: str | None = None
     github_token: str | None = None
 
+    # Auth: secret used to sign JWTs (required for login) and token lifetime
+    jwt_secret: str = ""
+    jwt_expire_minutes: int = 1440
+
     # Comma-separated list of frontend URLs allowed to call the API
     cors_origins: str = "http://localhost:3000"
 
