@@ -3,7 +3,7 @@
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 
 from app.api.deps import DbSession, OwnedProject
@@ -58,3 +58,14 @@ def list_messages(
     return MessagePage(
         items=[MessageOut.model_validate(m) for m in rows], total=total, page=page, page_size=page_size
     )
+
+
+@router.delete("/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_message(message_id: int, project: OwnedProject, db: DbSession) -> Response:
+    """Permanently delete one imported message (NFR-04)."""
+    message = db.get(Message, message_id)
+    if message is None or message.project_id != project.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Message not found")
+    db.delete(message)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

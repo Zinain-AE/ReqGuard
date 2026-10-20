@@ -22,6 +22,15 @@ def test_upgrade_and_downgrade(tmp_path, monkeypatch):
     checks = inspect(engine).get_check_constraints("team_members")
     assert any(c["name"] == "ck_team_members_role" for c in checks)
 
+    # Deleting a project removes its sources and messages in the database itself
+    def on_delete(table: str, referred: str) -> str | None:
+        fks = inspect(engine).get_foreign_keys(table)
+        return next(fk["options"].get("ondelete") for fk in fks if fk["referred_table"] == referred)
+
+    assert on_delete("sources", "projects") == "CASCADE"
+    assert on_delete("messages", "projects") == "CASCADE"
+    assert on_delete("team_members", "projects") == "CASCADE"
+
     command.downgrade(config, "base")
     assert set(inspect(engine).get_table_names()) <= {"alembic_version"}
     engine.dispose()

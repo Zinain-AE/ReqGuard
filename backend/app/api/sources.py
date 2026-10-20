@@ -4,8 +4,8 @@ import logging
 from pathlib import PurePath
 from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+from sqlalchemy import delete, func, select
 
 from app.api.deps import DbSession, OwnedProject
 from app.connectors.files import SUPPORTED_EXTENSIONS, connector_for_upload
@@ -37,6 +37,19 @@ def list_sources(project: OwnedProject, db: DbSession) -> list[SourceOut]:
         SourceOut.model_validate(source).model_copy(update={"message_count": counts.get(source.id, 0)})
         for source in project.sources
     ]
+
+
+@router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_source(source_id: int, project: OwnedProject, db: DbSession) -> Response:
+    """Permanently delete a source and every message imported from it (NFR-04)."""
+    source = db.get(Source, source_id)
+    if source is None or source.project_id != project.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source not found")
+    # messages.source_id is ON DELETE SET NULL, so the messages are removed explicitly (same transaction)
+    db.execute(delete(Message).where(Message.project_id == project.id, Message.source_id == source.id))
+    db.delete(source)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _import_file(db: DbSession, project_id: int, filename: str, data: bytes) -> FileImportResult:
