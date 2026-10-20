@@ -6,7 +6,7 @@ import { Suspense, useEffect, useState } from "react";
 import NoProjectSelected from "@/components/NoProjectSelected";
 import SourceBadge, { sourceLabel } from "@/components/SourceBadge";
 import { ErrorBanner, errorText, inputClass, secondaryButton } from "@/components/ui";
-import { MESSAGE_SOURCES, listMessages, type MessageFilters, type MessagePage } from "@/lib/api";
+import { MESSAGE_SOURCES, deleteMessage, listMessages, type Message, type MessageFilters, type MessagePage } from "@/lib/api";
 import { useSelectedProject } from "@/lib/selectedProject";
 
 const PAGE_SIZE = 50;
@@ -42,7 +42,9 @@ function MessagesView({ projectId }: { projectId: string }) {
     page: Math.max(1, Number(searchParams.get("page")) || 1),
     page_size: PAGE_SIZE,
   };
-  const queryKey = `${projectId}?${searchParams.toString()}`;
+  // Bumping `reload` fetches the current page again (after a delete)
+  const [reload, setReload] = useState(0);
+  const queryKey = `${projectId}?${searchParams.toString()}#${reload}`;
 
   // Text boxes update the URL after a short pause in typing
   const [authorText, setAuthorText] = useState(filters.author ?? "");
@@ -50,6 +52,8 @@ function MessagesView({ projectId }: { projectId: string }) {
 
   const [result, setResult] = useState<{ key: string; data?: MessagePage; error?: string } | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState("");
 
   function updateUrl(changes: Record<string, string | number>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -93,6 +97,23 @@ function MessagesView({ projectId }: { projectId: string }) {
     setAuthorText("");
     setSearchText("");
     router.replace(pathname, { scroll: false });
+  }
+
+  async function handleDelete(m: Message) {
+    const preview = m.text.length > 80 ? `${m.text.slice(0, 80)}...` : m.text;
+    if (!confirm(`Delete this message permanently? This cannot be undone.\n\n"${preview}"`)) return;
+    setDeletingId(m.id);
+    setDeleteError("");
+    try {
+      await deleteMessage(projectId, m.id);
+      // Last message on a later page: go back one page, otherwise reload this one
+      if (data && data.items.length === 1 && data.page > 1) updateUrl({ page: data.page - 1 });
+      else setReload((n) => n + 1);
+    } catch (err) {
+      setDeleteError(errorText(err));
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   function toggle(id: number) {
@@ -168,9 +189,9 @@ function MessagesView({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {result?.error && (
+      {(result?.error || deleteError) && (
         <div className="mt-4">
-          <ErrorBanner message={result.error} />
+          <ErrorBanner message={deleteError || result?.error || ""} />
         </div>
       )}
 
@@ -184,19 +205,22 @@ function MessagesView({ projectId }: { projectId: string }) {
               <th className="w-40 px-4 py-3 font-medium">Source</th>
               <th className="w-40 px-4 py-3 font-medium">Author</th>
               <th className="px-4 py-3 font-medium">Text</th>
+              <th className="w-12 px-2 py-3">
+                <span className="sr-only">Delete</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
             {!data && loading && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
                   Loading messages...
                 </td>
               </tr>
             )}
             {data?.items.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-10 text-center text-zinc-500">
+                <td colSpan={5} className="px-4 py-10 text-center text-zinc-500">
                   {hasFilters ? (
                     "No messages match these filters."
                   ) : (
@@ -235,6 +259,18 @@ function MessagesView({ projectId }: { projectId: string }) {
                       className={`w-full cursor-pointer whitespace-pre-line text-left text-zinc-100 ${open ? "" : "line-clamp-3"}`}
                     >
                       {m.text}
+                    </button>
+                  </td>
+                  <td className="px-2 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(m)}
+                      disabled={deletingId !== null}
+                      title="Delete message"
+                      aria-label="Delete message"
+                      className="rounded-md p-1.5 text-zinc-500 transition hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-40"
+                    >
+                      <TrashIcon />
                     </button>
                   </td>
                 </tr>
@@ -294,5 +330,17 @@ function Pagination(props: { page: number; pageSize: number; total: number; onPa
         </button>
       </div>
     </div>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-4 w-4" aria-hidden>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+      />
+    </svg>
   );
 }
