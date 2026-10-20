@@ -190,6 +190,11 @@ export function uploadFiles(projectId: number | string, files: File[]) {
   return apiFetch<UploadResult>(`/projects/${projectId}/uploads`, { method: "POST", body: form });
 }
 
+// Permanently deletes the source and every message imported from it
+export function deleteSource(projectId: number | string, sourceId: number) {
+  return apiFetch<void>(`/projects/${projectId}/sources/${sourceId}`, { method: "DELETE" });
+}
+
 // ---------- Messages ----------
 
 export type Message = {
@@ -222,4 +227,8 @@ export function listMessages(projectId: number | string, filters: MessageFilters
     if (value !== undefined && value !== "") params.set(key, String(value));
   }
   return apiFetch<MessagePage>(`/projects/${projectId}/messages?${params}`);
+}
+
+export function deleteMessage(projectId: number | string, messageId: number) {
+  return apiFetch<void>(`/projects/${projectId}/messages/${messageId}`, { method: "DELETE" });
 }

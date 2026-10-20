@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import NoProjectSelected from "@/components/NoProjectSelected";
 import SourceBadge, { sourceLabel } from "@/components/SourceBadge";
 import { ErrorBanner, errorText } from "@/components/ui";
-import { listSources, uploadFiles, type Source, type UploadResult } from "@/lib/api";
+import { deleteSource, listSources, uploadFiles, type Source, type UploadResult } from "@/lib/api";
 import { useSelectedProject } from "@/lib/selectedProject";
 
 const ACCEPT = ".txt,.md,.eml,.json";
@@ -31,6 +31,7 @@ function ProjectSources({ projectId }: { projectId: string }) {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [uploadError, setUploadError] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -44,6 +45,24 @@ function ProjectSources({ projectId }: { projectId: string }) {
     loadSources();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per project (component is keyed by it)
   }, []);
+
+  async function handleDelete(source: Source) {
+    const count = source.message_count === 1 ? "1 message" : `${source.message_count} messages`;
+    const ok = confirm(
+      `Delete "${source.display_name}"?\n\nThis will permanently delete ${count}. This cannot be undone.`,
+    );
+    if (!ok) return;
+    setDeletingId(source.id);
+    setLoadError("");
+    try {
+      await deleteSource(projectId, source.id);
+      setSources((list) => list?.filter((s) => s.id !== source.id) ?? null);
+    } catch (err) {
+      setLoadError(errorText(err));
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   async function handleFiles(fileList: FileList | null) {
     const files = Array.from(fileList ?? []);
@@ -148,13 +167,20 @@ function ProjectSources({ projectId }: { projectId: string }) {
                 <td className="px-4 py-3 text-zinc-400">
                   {s.last_synced_at ? new Date(s.last_synced_at).toLocaleString() : "—"}
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="whitespace-nowrap px-4 py-3 text-right">
                   <Link
                     href={`/messages?source=${encodeURIComponent(s.type)}`}
-                    className="whitespace-nowrap text-xs text-indigo-300 hover:text-indigo-200"
+                    className="text-xs text-indigo-300 hover:text-indigo-200"
                   >
                     View messages
                   </Link>
+                  <button
+                    onClick={() => handleDelete(s)}
+                    disabled={deletingId !== null}
+                    className="ml-3 text-xs text-rose-300 hover:text-rose-200 disabled:opacity-50"
+                  >
+                    {deletingId === s.id ? "Deleting..." : "Delete"}
+                  </button>
                 </td>
               </tr>
             ))}
