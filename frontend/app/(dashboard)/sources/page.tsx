@@ -1,11 +1,221 @@
-import PlaceholderPage from "@/components/PlaceholderPage";
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import NoProjectSelected from "@/components/NoProjectSelected";
+import SourceBadge, { sourceLabel } from "@/components/SourceBadge";
+import { ErrorBanner, errorText } from "@/components/ui";
+import { listSources, uploadFiles, type Source, type UploadResult } from "@/lib/api";
+import { useSelectedProject } from "@/lib/selectedProject";
+
+const ACCEPT = ".txt,.md,.eml,.json";
+const MAX_FILES = 10;
 
 export default function SourcesPage() {
+  const projectId = useSelectedProject();
+
   return (
-    <PlaceholderPage
-      title="Sources"
-      description="Connect Jira, Slack, Telegram, Discord and Gmail, or upload chat exports and files."
-      step={3}
-    />
+    <div className="max-w-5xl">
+      <h1 className="text-2xl font-semibold tracking-tight">Sources</h1>
+      <p className="mt-1.5 text-sm text-zinc-400">
+        Upload client conversations. API connectors (Jira, Slack, Telegram, Discord, Gmail) come in Step 4.
+      </p>
+      {projectId ? <ProjectSources key={projectId} projectId={projectId} /> : <NoProjectSelected />}
+    </div>
+  );
+}
+
+function ProjectSources({ projectId }: { projectId: string }) {
+  const [sources, setSources] = useState<Source[] | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [result, setResult] = useState<UploadResult | null>(null);
+  const [uploadError, setUploadError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function loadSources() {
+    return listSources(projectId)
+      .then(setSources)
+      .catch((err) => setLoadError(errorText(err)));
+  }
+
+  useEffect(() => {
+    loadSources();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per project (component is keyed by it)
+  }, []);
+
+  async function handleFiles(fileList: FileList | null) {
+    const files = Array.from(fileList ?? []);
+    if (files.length === 0 || uploading) return;
+    if (files.length > MAX_FILES) {
+      setUploadError(`Upload at most ${MAX_FILES} files at once.`);
+      return;
+    }
+    setUploading(true);
+    setUploadError("");
+    setResult(null);
+    try {
+      setResult(await uploadFiles(projectId, files));
+      await loadSources();
+    } catch (err) {
+      setUploadError(errorText(err));
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  return (
+    <>
+      <label
+        htmlFor="upload-input"
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          handleFiles(e.dataTransfer.files);
+        }}
+        className={`mt-6 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-12 text-center transition ${
+          dragging
+            ? "border-indigo-400 bg-indigo-500/10"
+            : "border-white/10 bg-zinc-900/40 hover:border-white/20 hover:bg-zinc-900/60"
+        } ${uploading ? "pointer-events-none opacity-60" : ""}`}
+      >
+        <UploadIcon />
+        <p className="mt-3 text-sm font-medium text-zinc-200">
+          {uploading ? "Importing..." : "Drop files here, or click to choose"}
+        </p>
+        <p className="mt-1.5 max-w-lg text-xs text-zinc-500">
+          WhatsApp &ldquo;Export chat&rdquo; .txt · Messenger message_1.json · .eml emails · .txt/.md meeting notes.
+          Up to {MAX_FILES} files, 10 MB each. Messages that were already imported are skipped.
+        </p>
+        <input
+          ref={inputRef}
+          id="upload-input"
+          type="file"
+          multiple
+          accept={ACCEPT}
+          className="sr-only"
+          onChange={(e) => handleFiles(e.target.files)}
+        />
+      </label>
+
+      <div className="mt-4">
+        <ErrorBanner message={uploadError} />
+      </div>
+      {result && <UploadResultCard result={result} />}
+
+      <h2 className="mt-10 text-lg font-medium">Imported sources</h2>
+      <ErrorBanner message={loadError} />
+      <div className="mt-3 overflow-x-auto rounded-2xl border border-white/10">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-zinc-900/80 text-xs uppercase tracking-wider text-zinc-500">
+            <tr>
+              <th className="px-4 py-3 font-medium">Name</th>
+              <th className="px-4 py-3 font-medium">Type</th>
+              <th className="px-4 py-3 text-right font-medium">Messages</th>
+              <th className="px-4 py-3 font-medium">Last import</th>
+              <th className="px-4 py-3" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {sources === null && !loadError && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
+                  Loading...
+                </td>
+              </tr>
+            )}
+            {sources?.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
+                  Nothing imported yet.
+                </td>
+              </tr>
+            )}
+            {sources?.map((s) => (
+              <tr key={s.id}>
+                <td className="px-4 py-3 font-medium text-zinc-100">{s.display_name}</td>
+                <td className="px-4 py-3">
+                  <SourceBadge source={s.type} />
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-zinc-300">{s.message_count}</td>
+                <td className="px-4 py-3 text-zinc-400">
+                  {s.last_synced_at ? new Date(s.last_synced_at).toLocaleString() : "—"}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <Link
+                    href={`/messages?source=${encodeURIComponent(s.type)}`}
+                    className="whitespace-nowrap text-xs text-indigo-300 hover:text-indigo-200"
+                  >
+                    View messages
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function UploadResultCard({ result }: { result: UploadResult }) {
+  return (
+    <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-900/60 p-5">
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+        <Stat label="imported" value={result.imported} className="text-emerald-300" />
+        <Stat label="duplicates" value={result.duplicates} className="text-amber-300" />
+        <Stat label="skipped" value={result.skipped} className="text-zinc-300" />
+        {result.imported > 0 && (
+          <Link href="/messages" className="ml-auto text-sm text-indigo-300 hover:text-indigo-200">
+            View messages →
+          </Link>
+        )}
+      </div>
+      <ul className="mt-4 divide-y divide-white/5 text-sm">
+        {result.files.map((f, i) => (
+          <li key={`${f.filename}-${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+            <span className="font-medium text-zinc-200">{f.filename}</span>
+            {f.type && <span className="text-xs text-zinc-500">{sourceLabel(f.type)}</span>}
+            {f.error ? (
+              <span className="text-rose-300">{f.error}</span>
+            ) : (
+              <span className="ml-auto text-xs tabular-nums text-zinc-400">
+                {f.imported} imported · {f.duplicates} duplicates · {f.skipped} skipped
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-xs text-zinc-500">
+        Skipped = system lines, media placeholders, headings and other lines that are not client messages.
+      </p>
+    </div>
+  );
+}
+
+function Stat({ label, value, className }: { label: string; value: number; className: string }) {
+  return (
+    <p className="text-sm text-zinc-400">
+      <span className={`text-2xl font-semibold tabular-nums ${className}`}>{value}</span> {label}
+    </p>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-9 w-9 text-zinc-500">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 7.5 12 3m0 0L7.5 7.5M12 3v13.5"
+      />
+    </svg>
   );
 }
