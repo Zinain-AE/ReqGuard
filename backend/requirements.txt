@@ -2,6 +2,9 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
 
+# Multipart form parsing for file uploads (FastAPI UploadFile)
+python-multipart>=0.0.9
+
 # Settings from .env
 pydantic-settings>=2.4
 

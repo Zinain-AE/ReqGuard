@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api import auth, projects, team
+from app.api import auth, messages, projects, sources, team
 from app.core.config import settings
 from app.core.db import get_db
 
@@ -23,6 +23,8 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(team.router)
+app.include_router(sources.router)
+app.include_router(messages.router)
 
 
 @app.get("/health")
