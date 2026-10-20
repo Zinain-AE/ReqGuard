@@ -1,0 +1,2 @@
+# Parser fixtures must stay byte-for-byte (line endings, encodings)
+backend/tests/fixtures/** -text

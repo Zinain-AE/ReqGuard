@@ -1,0 +1,14 @@
+12/03/24, 09:14 - Messages and calls are end-to-end encrypted. No one outside of this chat, not even WhatsApp, can read or listen to them. Tap to learn more.
+12/03/24, 09:15 - Sarah Khan created group "Acme Logistics x DevTeam"
+12/03/24, 09:15 - Sarah Khan added you
+12/03/24, 09:20 - Sarah Khan: Hi team, thanks for joining. We want drivers to see their delivery route on the mobile app.
+12/03/24, 09:21 - Sarah Khan: A few more things:
+- The dispatcher must be able to reassign a delivery to another driver.
+- Customers should get an SMS when the parcel is out for delivery.
+
+Also the app needs to be fast.
+12/03/24, 09:25 - Rahim Uddin: Got it. Should the SMS also go out when a delivery fails?
+12/03/24, 09:26 - Sarah Khan: <Media omitted>
+13/03/24, 18:02 - Sarah Khan: Yes, and include the reason for the failed delivery.
+13/03/24, 18:03 - Rahim Uddin: This message was deleted
+13/03/24, 18:05 - Rahim Uddin: Noted. We'll add it to the list. <This message was edited>
