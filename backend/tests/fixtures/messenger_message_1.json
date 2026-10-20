@@ -1,0 +1,74 @@
+{
+  "participants": [
+    {
+      "name": "Sarah Khan"
+    },
+    {
+      "name": "Jos\u00c3\u00a9 Mart\u00c3\u00adnez"
+    },
+    {
+      "name": "Rahim Uddin"
+    }
+  ],
+  "messages": [
+    {
+      "sender_name": "Rahim Uddin",
+      "timestamp_ms": 1710756600000,
+      "content": "You unsent a message",
+      "type": "Unsubscribe",
+      "is_unsent": true
+    },
+    {
+      "sender_name": "Jos\u00c3\u00a9 Mart\u00c3\u00adnez",
+      "timestamp_ms": 1710756540000,
+      "content": "Yes, express orders above \u00e2\u0082\u00ac500 need manager approval.",
+      "type": "Generic",
+      "reactions": [
+        {
+          "reaction": "\u00f0\u009f\u0091\u008d",
+          "actor": "Sarah Khan"
+        }
+      ]
+    },
+    {
+      "sender_name": "Sarah Khan",
+      "timestamp_ms": 1710756420000,
+      "content": "Sarah reacted \u00f0\u009f\u0091\u008d to your message",
+      "type": "Generic"
+    },
+    {
+      "sender_name": "Sarah Khan",
+      "timestamp_ms": 1710756360000,
+      "photos": [
+        {
+          "uri": "messages/inbox/acmelogistics_10/photos/route_map.jpg",
+          "creation_timestamp": 1710756360
+        }
+      ],
+      "type": "Generic"
+    },
+    {
+      "sender_name": "Rahim Uddin",
+      "timestamp_ms": 1710756300000,
+      "content": "Understood. What about the price limit \u00e2\u0089\u00a4 \u00e2\u0082\u00ac500 for express deliveries?",
+      "type": "Generic"
+    },
+    {
+      "sender_name": "Sarah Khan",
+      "timestamp_ms": 1710756120000,
+      "content": "Drivers shouldn\u00e2\u0080\u0099t have to log in again every day. Keep them signed in for 30 days.",
+      "type": "Generic"
+    },
+    {
+      "sender_name": "Sarah Khan",
+      "timestamp_ms": 1710756000000,
+      "content": "Hi! We\u00e2\u0080\u0099ve reviewed the prototype \u00e2\u0080\u0094 looks great.",
+      "type": "Generic",
+      "is_geoblocked_for_viewer": false
+    }
+  ],
+  "title": "Acme Logistics \u00e2\u0080\u0093 Delivery App",
+  "is_still_participant": true,
+  "thread_type": "RegularGroup",
+  "thread_path": "inbox/acmelogisticsdeliveryapp_10"
+}
