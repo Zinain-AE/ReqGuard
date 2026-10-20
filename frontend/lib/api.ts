@@ -20,9 +20,11 @@ function errorMessage(body: unknown, status: number): string {
 }
 
 async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
+  // For FormData the browser sets "multipart/form-data; boundary=..." itself
+  const isForm = init.body instanceof FormData;
   const res = await fetch(url, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init.headers },
+    headers: isForm ? init.headers : { "Content-Type": "application/json", ...init.headers },
   });
 
   if (!res.ok) {
@@ -145,4 +147,79 @@ export function updateMember(projectId: number | string, memberId: number, data:
 
 export function deleteMember(projectId: number | string, memberId: number) {
   return apiFetch<void>(`/projects/${projectId}/team/${memberId}`, { method: "DELETE" });
+}
+
+// ---------- Sources and uploads ----------
+
+export const MESSAGE_SOURCES = ["whatsapp", "messenger", "email", "meeting_notes"] as const;
+export type MessageSource = (typeof MESSAGE_SOURCES)[number];
+
+export type Source = {
+  id: number;
+  type: string;
+  display_name: string;
+  config: Record<string, unknown>;
+  last_synced_at: string | null;
+  created_at: string;
+  message_count: number;
+};
+
+export type FileImportResult = {
+  filename: string;
+  type: string | null;
+  imported: number;
+  duplicates: number;
+  skipped: number;
+  error: string | null;
+};
+
+export type UploadResult = {
+  imported: number;
+  duplicates: number;
+  skipped: number;
+  files: FileImportResult[];
+};
+
+export function listSources(projectId: number | string) {
+  return apiFetch<Source[]>(`/projects/${projectId}/sources`);
+}
+
+export function uploadFiles(projectId: number | string, files: File[]) {
+  const form = new FormData();
+  for (const file of files) form.append("files", file);
+  return apiFetch<UploadResult>(`/projects/${projectId}/uploads`, { method: "POST", body: form });
+}
+
+// ---------- Messages ----------
+
+export type Message = {
+  id: number;
+  source_id: number | null;
+  source: string;
+  external_id: string;
+  channel: string;
+  author: string;
+  sent_at: string;
+  text: string;
+  imported_at: string;
+};
+
+export type MessagePage = { items: Message[]; total: number; page: number; page_size: number };
+
+export type MessageFilters = {
+  source?: string;
+  author?: string;
+  date_from?: string; // YYYY-MM-DD
+  date_to?: string; // YYYY-MM-DD, inclusive
+  q?: string;
+  page?: number;
+  page_size?: number;
+};
+
+export function listMessages(projectId: number | string, filters: MessageFilters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  return apiFetch<MessagePage>(`/projects/${projectId}/messages?${params}`);
 }

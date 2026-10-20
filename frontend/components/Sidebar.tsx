@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ShieldIcon } from "@/components/AuthShell";
-import { getHealth, getMe, logout, type User } from "@/lib/api";
+import { getHealth, getMe, listProjects, logout, type Project, type User } from "@/lib/api";
+import { readSelected, setSelectedProject, useSelectedProject } from "@/lib/selectedProject";
 
 const LINKS = [
   { href: "/projects", label: "Projects" },
@@ -28,6 +29,8 @@ export default function Sidebar() {
         <ShieldIcon />
         <span className="text-lg font-semibold tracking-tight">ReqGuard</span>
       </Link>
+
+      <ProjectPicker />
 
       <nav className="flex-1 space-y-0.5 px-3">
         {LINKS.map((link) => {
@@ -54,6 +57,55 @@ export default function Sidebar() {
   );
 }
 
+// Chooses the project that Sources, Messages and the other pages work on.
+// Reloads the list on every navigation so new or deleted projects show up.
+function ProjectPicker() {
+  const pathname = usePathname();
+  const selected = useSelectedProject();
+  const [projects, setProjects] = useState<Project[] | null>(null);
+
+  useEffect(() => {
+    listProjects()
+      .then((list) => {
+        setProjects(list);
+        // Keep the selection valid: drop deleted/foreign projects, pick the first one if none
+        const current = readSelected();
+        if (!list.some((p) => String(p.id) === current)) setSelectedProject(list[0]?.id ?? null);
+      })
+      .catch(() => setProjects([]));
+  }, [pathname]);
+
+  if (projects === null) return <div className="mx-5 mb-3 h-9" />;
+
+  if (projects.length === 0) {
+    return (
+      <Link href="/projects" className="mx-5 mb-3 block text-xs text-indigo-300 hover:text-indigo-200">
+        Create a project to get started →
+      </Link>
+    );
+  }
+
+  return (
+    <div className="mx-3 mb-3">
+      <label htmlFor="project-picker" className="mb-1 block px-2 text-[11px] uppercase tracking-wider text-zinc-500">
+        Project
+      </label>
+      <select
+        id="project-picker"
+        value={selected ?? ""}
+        onChange={(e) => setSelectedProject(e.target.value)}
+        className="w-full rounded-lg border border-white/10 bg-zinc-950/60 px-2.5 py-1.5 text-sm text-zinc-100 outline-none focus:border-indigo-400"
+      >
+        {projects.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 // Logged-in user's name and a Log out button.
 function UserBox() {
   const router = useRouter();
@@ -67,6 +119,7 @@ function UserBox() {
 
   async function handleLogout() {
     await logout().catch(() => undefined);
+    setSelectedProject(null);
     router.replace("/login");
     router.refresh();
   }

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ErrorBanner, Label, dangerButton, errorText, inputClass, primaryButton } from "@/components/ui";
 import { deleteProject, getProject, updateProject, type Project, type ProjectInput } from "@/lib/api";
+import { setSelectedProject } from "@/lib/selectedProject";
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -20,6 +21,7 @@ export default function ProjectDetailPage() {
     getProject(id)
       .then((p) => {
         setProject(p);
+        setSelectedProject(p.id); // opening a project also makes it the sidebar selection
         setForm({ name: p.name, description: p.description, scope_text: p.scope_text });
       })
       .catch((err) => setLoadError(errorText(err)));
