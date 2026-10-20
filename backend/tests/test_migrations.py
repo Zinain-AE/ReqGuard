@@ -18,7 +18,7 @@ def test_upgrade_and_downgrade(tmp_path, monkeypatch):
 
     command.upgrade(config, "head")
     engine = create_engine(url)
-    assert {"users", "projects", "team_members"} <= set(inspect(engine).get_table_names())
+    assert {"users", "projects", "team_members", "sources", "messages"} <= set(inspect(engine).get_table_names())
     checks = inspect(engine).get_check_constraints("team_members")
     assert any(c["name"] == "ck_team_members_role" for c in checks)
 

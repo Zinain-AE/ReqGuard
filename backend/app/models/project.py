@@ -27,3 +27,9 @@ class Project(Base):
         passive_deletes=True,
         order_by="TeamMember.id",
     )
+    sources: Mapped[list["Source"]] = relationship(  # noqa: F821
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="Source.id",
+    )
