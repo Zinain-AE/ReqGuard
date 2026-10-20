@@ -1,0 +1,34 @@
+Return-Path: <sarah.khan@acme-logistics.example>
+Message-ID: <CAF1a2b3c4d5e6@mail.acme-logistics.example>
+Date: Tue, 19 Mar 2024 09:41:07 +0100
+From: Sarah Khan <sarah.khan@acme-logistics.example>
+To: Rahim Uddin <rahim@devteam.example>
+Cc: Tom Becker <tom.becker@acme-logistics.example>
+Subject: Re: Delivery app - notification requirements
+In-Reply-To: <A1B2C3@devteam.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: 7bit
+
+Hi Rahim,
+
+Thanks for the summary. Two corrections:
+
+1. Customers must get the "out for delivery" SMS at most 5 minutes after
+   the driver starts the route.
+2. Failed delivery notifications should also go to the dispatcher by email.
+
+Also, the tracking page has to work on mobile browsers.
+
+Best regards,
+Sarah Khan
+Operations Manager | Acme Logistics
++44 20 7946 0000
+
+On Mon, 18 Mar 2024 at 17:12, Rahim Uddin <rahim@devteam.example> wrote:
+> Hi Sarah,
+>
+> Here is our summary of the notification requirements from today's call.
+> Please confirm or correct.
+>
+> Rahim

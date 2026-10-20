@@ -1,0 +1,17 @@
+Message-ID: <HTML-77aa88bb@mail.acme-logistics.example>
+Date: Wed, 20 Mar 2024 14:03:00 +0000
+From: tom.becker@acme-logistics.example
+To: rahim@devteam.example
+Subject: Fwd: Reporting
+MIME-Version: 1.0
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html><head><style>p {color: #333;}</style></head><body>
+<p>Hi Rahim,</p>
+<p>The weekly report should include:</p>
+<ul><li>number of deliveries per driver</li><li>average delivery time &amp; late deliveries</li></ul>
+<p>Managers need it every Monday at 8:00.</p>
+<p>Thanks,<br>Tom</p>
+<blockquote>Earlier: can you send the report format?</blockquote>
+</body></html>
