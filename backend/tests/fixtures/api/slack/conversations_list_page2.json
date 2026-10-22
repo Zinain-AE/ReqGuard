@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "channels": [
+    {"id": "C0ACME0001", "name": "client-acme", "is_channel": true, "is_member": true, "is_archived": false}
+  ],
+  "response_metadata": {"next_cursor": ""}
+}

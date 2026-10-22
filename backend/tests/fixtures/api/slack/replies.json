@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "messages": [
+    {"type": "message", "user": "U0SARAH001", "text": "The dashboard must load in under 2 seconds &amp; show <https://acme.example.com/kpi|our KPIs>.", "ts": "1792656000.000200", "thread_ts": "1792656000.000200", "reply_count": 2},
+    {"type": "message", "user": "U0TOM00001", "text": "Even on mobile?", "ts": "1792656100.000300", "thread_ts": "1792656000.000200", "user_profile": {"real_name": "Tom Manager"}},
+    {"type": "message", "user": "U0SARAH001", "text": "Yes, on 4G too.", "ts": "1792656200.000400", "thread_ts": "1792656000.000200", "user_profile": {"real_name": "Sarah Client"}}
+  ],
+  "has_more": false,
+  "response_metadata": {"next_cursor": ""}
+}

@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "messages": [
+    {
+      "type": "message",
+      "user": "U0SARAH001",
+      "text": "The dashboard must load in under 2 seconds &amp; show <https://acme.example.com/kpi|our KPIs>.",
+      "ts": "1792656000.000200",
+      "user_profile": {"real_name": "Sarah Client", "display_name": "sarah"},
+      "thread_ts": "1792656000.000200",
+      "reply_count": 2
+    },
+    {"type": "message", "subtype": "channel_join", "user": "U0BOT00001", "text": "<@U0BOT00001> has joined the channel", "ts": "1792655900.000100"}
+  ],
+  "has_more": true,
+  "response_metadata": {"next_cursor": "bmV4dF90czoxNzkyNjU1ODAw"}
+}

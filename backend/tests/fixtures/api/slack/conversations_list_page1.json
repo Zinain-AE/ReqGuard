@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "channels": [
+    {"id": "C0GENERAL1", "name": "general", "is_channel": true, "is_member": true, "is_archived": false}
+  ],
+  "response_metadata": {"next_cursor": "dGVhbTpDMDYxRkE1UEI="}
+}

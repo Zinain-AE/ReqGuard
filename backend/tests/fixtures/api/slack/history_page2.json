@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "messages": [
+    {"type": "message", "user": "U0TOM00001", "text": "Hi <@U0SARAH001>, welcome to <#C0ACME0001|client-acme>!", "ts": "1792655800.000050"},
+    {"type": "message", "subtype": "bot_message", "bot_id": "B0123", "text": "Build passed", "ts": "1792655700.000010"}
+  ],
+  "has_more": false,
+  "response_metadata": {"next_cursor": ""}
+}
