@@ -1,21 +1,55 @@
-"""Message sources of a project and file/export uploads. Only the project owner can use these."""
+"""Message sources of a project: file/export uploads and API connectors (create, sync, status).
+
+Only the project owner can use these. Connector tokens come from backend/.env or are stored
+encrypted on the Source (Gmail); no endpoint ever returns them.
+"""
 
 import logging
 from pathlib import PurePath
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+from fastapi.responses import RedirectResponse
+from pydantic import ValidationError
 from sqlalchemy import delete, func, select
 
-from app.api.deps import DbSession, OwnedProject
+from app.api.deps import CurrentUser, DbSession, OwnedProject
+from app.connectors.base import as_utc
 from app.connectors.files import SUPPORTED_EXTENSIONS, connector_for_upload
+from app.connectors.gmail import GmailConnector, authorize_url, exchange_code
+from app.connectors.http import ConnectorError, NeedsAuthError, NotConfiguredError
 from app.connectors.importer import get_or_create_source, import_messages
-from app.models import Message, Source
-from app.schemas.message import FileImportResult, SourceOut, UploadResult
+from app.connectors.registry import (
+    API_CONNECTORS,
+    build_connector,
+    missing_env,
+    needs_auth,
+    not_configured_message,
+    validate_settings,
+)
+from app.core.config import settings
+from app.core.crypto import DecryptionError, EncryptionKeyError, encrypt
+from app.core.security import InvalidTokenError, create_oauth_state, decode_oauth_state
+from app.models import Message, Project, Source
+from app.models.source import SYNC_ERROR, SYNC_NEEDS_AUTH, SYNC_OK
+from app.schemas.message import (
+    AuthorizeUrl,
+    ConnectorOut,
+    FileImportResult,
+    SourceCreate,
+    SourceOut,
+    SourceStatus,
+    SyncResult,
+    UploadResult,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["sources"])
+# Endpoints outside a project: the connector list and the OAuth callback (Google redirects the browser there)
+public_router = APIRouter(tags=["sources"])
+
+GMAIL = GmailConnector.source
 
 MAX_FILES = 10
 MAX_FILE_BYTES = 10 * 1024 * 1024
@@ -33,18 +67,218 @@ def list_sources(project: OwnedProject, db: DbSession) -> list[SourceOut]:
             .group_by(Message.source_id)
         ).all()
     )
-    return [
-        SourceOut.model_validate(source).model_copy(update={"message_count": counts.get(source.id, 0)})
-        for source in project.sources
-    ]
+    return [_source_out(source, counts.get(source.id, 0)) for source in project.sources]
+
+
+def _source_out(source: Source, message_count: int) -> SourceOut:
+    return SourceOut.model_validate(source).model_copy(
+        update={"message_count": message_count, "needs_auth": needs_auth(source)}
+    )
+
+
+def _get_source(db: DbSession, project: Project, source_id: int) -> Source:
+    source = db.get(Source, source_id)
+    if source is None or source.project_id != project.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source not found")
+    return source
+
+
+def _get_api_source(db: DbSession, project: Project, source_id: int) -> Source:
+    source = _get_source(db, project, source_id)
+    if source.type not in API_CONNECTORS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="This source was uploaded from files. Upload the files again to import new messages.",
+        )
+    return source
+
+
+def _message_count(db: DbSession, source: Source) -> int:
+    return db.scalar(select(func.count()).select_from(Message).where(Message.source_id == source.id)) or 0
+
+
+# ---------- API connectors ----------
+
+
+@public_router.get("/connectors", response_model=list[ConnectorOut])
+def list_connectors(user: CurrentUser) -> list[ConnectorOut]:
+    """Every API connector and whether backend/.env has what it needs. Variable names only, never values."""
+    result = []
+    for source_type, connector in API_CONNECTORS.items():
+        missing = missing_env(source_type)
+        result.append(
+            ConnectorOut(type=source_type, label=connector.label, configured=not missing, missing_env=missing)
+        )
+    return result
+
+
+def _validation_message(exc: ValidationError) -> str:
+    error = exc.errors()[0]
+    field = ".".join(str(part) for part in error.get("loc", ()))
+    message = str(error.get("msg", "Invalid value")).removeprefix("Value error, ")
+    return f"{field}: {message}" if field else message
+
+
+@router.post("/sources", response_model=SourceOut, status_code=status.HTTP_201_CREATED)
+def create_source(body: SourceCreate, project: OwnedProject, db: DbSession) -> SourceOut:
+    """Add an API source (Jira, Slack, Gmail, Telegram, Discord) with its non-secret settings."""
+    if body.type not in API_CONNECTORS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail=f"Unknown connector. Use one of: {', '.join(API_CONNECTORS)}."
+        )
+    missing = missing_env(body.type)
+    if missing:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=not_configured_message(missing))
+    try:
+        user_settings = validate_settings(body.type, body.settings)
+    except ValidationError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=_validation_message(exc)) from None
+
+    exists = db.scalar(
+        select(Source.id).where(
+            Source.project_id == project.id, Source.type == body.type, Source.display_name == body.display_name
+        )
+    )
+    if exists is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="A source with this name already exists.")
+
+    source = Source(
+        project_id=project.id,
+        type=body.type,
+        display_name=body.display_name,
+        config={"origin": "api", "settings": user_settings, "state": {}},
+        sync_status=SYNC_NEEDS_AUTH if body.type == GMAIL else None,
+    )
+    db.add(source)
+    db.commit()
+    db.refresh(source)
+    return _source_out(source, 0)
+
+
+def _sync_failed(db: DbSession, source: Source, sync_status: str, message: str, http_status: int) -> NoReturn:
+    """Store the failure on the source (so the card shows it) and answer with a clear message."""
+    source.sync_status = sync_status
+    source.sync_error = message
+    if sync_status == SYNC_NEEDS_AUTH and source.type == GMAIL:
+        source.credentials_encrypted = None  # revoked/expired or unreadable: connect again
+    db.commit()
+    raise HTTPException(http_status, detail=message)
+
+
+@router.post("/sources/{source_id}/sync", response_model=SyncResult)
+def sync_source(source_id: int, project: OwnedProject, db: DbSession) -> SyncResult:
+    """Fetch new messages from the API. Messages that were already imported are skipped."""
+    source = _get_api_source(db, project, source_id)
+    try:
+        with build_connector(source) as connector:
+            since = as_utc(source.last_synced_at) if source.last_synced_at else None
+            messages = connector.fetch(since=since)
+    except NotConfiguredError as exc:
+        _sync_failed(db, source, SYNC_ERROR, str(exc), status.HTTP_400_BAD_REQUEST)
+    except (NeedsAuthError, DecryptionError) as exc:
+        _sync_failed(db, source, SYNC_NEEDS_AUTH, str(exc), status.HTTP_409_CONFLICT)
+    except ConnectorError as exc:
+        _sync_failed(db, source, SYNC_ERROR, str(exc), status.HTTP_502_BAD_GATEWAY)
+    except Exception:
+        logger.exception("Sync of source %s (%s) failed", source.id, source.type)
+        _sync_failed(
+            db, source, SYNC_ERROR, "Unexpected error while syncing. See the backend log.", status.HTTP_502_BAD_GATEWAY
+        )
+
+    counts = import_messages(db, project.id, source, messages)
+    # Save the cursor only together with the messages, so nothing is skipped if storing fails
+    source.config = {**(source.config or {}), "state": connector.state}
+    source.sync_status = SYNC_OK
+    source.sync_error = None
+    db.commit()
+    return SyncResult(
+        imported=counts.imported,
+        duplicates=counts.duplicates,
+        sync_status=SYNC_OK,
+        last_synced_at=source.last_synced_at,
+    )
+
+
+@router.get("/sources/{source_id}/status", response_model=SourceStatus)
+def source_status(source_id: int, project: OwnedProject, db: DbSession) -> SourceStatus:
+    source = _get_source(db, project, source_id)
+    return SourceStatus(
+        id=source.id,
+        type=source.type,
+        configured=source.type not in API_CONNECTORS or not missing_env(source.type),
+        needs_auth=needs_auth(source),
+        sync_status=source.sync_status,
+        sync_error=source.sync_error,
+        last_synced_at=source.last_synced_at,
+        message_count=_message_count(db, source),
+    )
+
+
+@router.get("/sources/{source_id}/gmail/authorize", response_model=AuthorizeUrl)
+def gmail_authorize(source_id: int, project: OwnedProject, db: DbSession, user: CurrentUser) -> AuthorizeUrl:
+    """URL of Google's consent page; the frontend sends the browser there."""
+    source = _get_api_source(db, project, source_id)
+    if source.type != GMAIL:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Only Gmail sources connect a Google account.")
+    missing = missing_env(GMAIL)
+    if missing:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=not_configured_message(missing))
+    url = authorize_url(
+        create_oauth_state(user.id, source.id),
+        client_id=str(settings.google_client_id),
+        redirect_uri=settings.google_redirect_uri,
+    )
+    return AuthorizeUrl(url=url)
+
+
+@public_router.get("/oauth/gmail/callback", include_in_schema=False)
+def gmail_callback(db: DbSession, state: str = "", code: str = "", error: str = "") -> RedirectResponse:
+    """Google redirects the browser here. Only the signed `state` says which user and source it is for."""
+
+    def back(result: str) -> RedirectResponse:
+        return RedirectResponse(f"{settings.frontend_url.rstrip('/')}/sources?gmail={result}", status_code=303)
+
+    try:
+        user_id, source_id = decode_oauth_state(state)
+    except InvalidTokenError:
+        return back("error")
+    source = db.get(Source, source_id)
+    if source is None or source.type != GMAIL or source.project.owner_id != user_id:
+        return back("error")
+
+    if error or not code:
+        source.sync_status = SYNC_NEEDS_AUTH
+        source.sync_error = "Google access was not granted."
+        db.commit()
+        return back("denied")
+
+    try:
+        refresh_token = exchange_code(
+            code,
+            client_id=str(settings.google_client_id),
+            client_secret=str(settings.google_client_secret),
+            redirect_uri=settings.google_redirect_uri,
+        )
+        source.credentials_encrypted = encrypt(refresh_token)
+    except (ConnectorError, EncryptionKeyError) as exc:
+        source.sync_status = SYNC_NEEDS_AUTH
+        source.sync_error = str(exc)
+        db.commit()
+        return back("error")
+
+    source.sync_status = None
+    source.sync_error = None
+    db.commit()
+    return back("connected")
+
+
+# ---------- Delete and uploads ----------
 
 
 @router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_source(source_id: int, project: OwnedProject, db: DbSession) -> Response:
     """Permanently delete a source and every message imported from it (NFR-04)."""
-    source = db.get(Source, source_id)
-    if source is None or source.project_id != project.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source not found")
+    source = _get_source(db, project, source_id)
     # messages.source_id is ON DELETE SET NULL, so the messages are removed explicitly (same transaction)
     db.execute(delete(Message).where(Message.project_id == project.id, Message.source_id == source.id))
     db.delete(source)

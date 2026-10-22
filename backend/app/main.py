@@ -24,6 +24,7 @@ app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(team.router)
 app.include_router(sources.router)
+app.include_router(sources.public_router)
 app.include_router(messages.router)
 
 

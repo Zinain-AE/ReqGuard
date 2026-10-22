@@ -1,4 +1,6 @@
-from pydantic import BaseModel, ConfigDict
+from typing import Annotated, Any
+
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from app.schemas.common import UtcDatetime
 
@@ -27,6 +29,8 @@ class MessagePage(BaseModel):
 
 
 class SourceOut(BaseModel):
+    """A source. Credentials are never part of it."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -35,7 +39,49 @@ class SourceOut(BaseModel):
     config: dict
     last_synced_at: UtcDatetime | None
     created_at: UtcDatetime
+    sync_status: str | None = None
+    sync_error: str | None = None
     message_count: int = 0
+    # API sources only: true while a Gmail source has no connected Google account
+    needs_auth: bool = False
+
+
+class ConnectorOut(BaseModel):
+    """An API connector type. `missing_env` lists variable names only, never values."""
+
+    type: str
+    label: str
+    configured: bool
+    missing_env: list[str]
+
+
+class SourceCreate(BaseModel):
+    type: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=30)]
+    display_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    # Connector-specific, non-secret settings (e.g. {"project_key": "ACME"}); checked by the connector
+    settings: dict[str, Any] = {}
+
+
+class SourceStatus(BaseModel):
+    id: int
+    type: str
+    configured: bool
+    needs_auth: bool
+    sync_status: str | None
+    sync_error: str | None
+    last_synced_at: UtcDatetime | None
+    message_count: int
+
+
+class SyncResult(BaseModel):
+    imported: int
+    duplicates: int
+    sync_status: str
+    last_synced_at: UtcDatetime | None
+
+
+class AuthorizeUrl(BaseModel):
+    url: str
 
 
 class FileImportResult(BaseModel):
