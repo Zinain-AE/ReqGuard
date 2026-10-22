@@ -21,6 +21,11 @@ def _fit_id(external_id: str) -> str:
     return external_id if len(external_id) <= 255 else stable_id(external_id)
 
 
+def _no_nul(value: str) -> str:
+    """PostgreSQL text columns cannot store NUL characters; drop them (the original stays in `raw`)."""
+    return value.replace("\x00", "")
+
+
 @dataclass
 class ImportCounts:
     imported: int = 0
@@ -83,10 +88,10 @@ def import_messages(
                     source_id=source.id if source else None,
                     source=msg.source,
                     external_id=external_id,
-                    channel=msg.channel[:200],
-                    author=msg.author[:200],
+                    channel=_no_nul(msg.channel)[:200],
+                    author=_no_nul(msg.author)[:200],
                     sent_at=msg.sent_at,
-                    text=msg.text,
+                    text=_no_nul(msg.text),
                     raw=msg.raw,
                 )
             )
