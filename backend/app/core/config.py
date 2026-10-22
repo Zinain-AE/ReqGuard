@@ -37,7 +37,11 @@ class Settings(BaseSettings):
     discord_bot_token: str | None = None
     google_client_id: str | None = None
     google_client_secret: str | None = None
+    google_redirect_uri: str = "http://localhost:8000/oauth/gmail/callback"
     github_token: str | None = None
+
+    # Fernet key that encrypts connector credentials stored in the database
+    token_encryption_key: str | None = None
 
     # Auth: secret used to sign JWTs (required for login) and token lifetime
     jwt_secret: str = ""
@@ -45,6 +49,8 @@ class Settings(BaseSettings):
 
     # Comma-separated list of frontend URLs allowed to call the API
     cors_origins: str = "http://localhost:3000"
+    # Frontend base URL, used to send the browser back after the Gmail OAuth flow
+    frontend_url: str = "http://localhost:3000"
 
     @field_validator("database_url")
     @classmethod

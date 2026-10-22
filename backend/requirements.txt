@@ -13,11 +13,17 @@ sqlalchemy>=2.0
 alembic>=1.13
 psycopg[binary]>=3.2
 
-# Testing (httpx is needed by FastAPI's TestClient)
-pytest>=8.0
+# HTTP client for the API connectors (also needed by FastAPI's TestClient)
 httpx>=0.27
+
+# Testing; respx mocks httpx so connector tests never touch the network
+pytest>=8.0
+respx>=0.21
 
 # Auth: JWT tokens, Argon2 password hashing, email validation for Pydantic EmailStr
 PyJWT>=2.9
 argon2-cffi>=23.1
 email-validator>=2.2
+
+# Encrypts stored connector credentials (Gmail refresh token) with Fernet
+cryptography>=43
