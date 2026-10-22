@@ -1,0 +1,39 @@
+{
+  "issues": [
+    {
+      "id": "10001",
+      "key": "ACME-1",
+      "self": "https://acme-demo.atlassian.net/rest/api/3/issue/10001",
+      "fields": {
+        "summary": "Password reset by email",
+        "description": {
+          "type": "doc",
+          "version": 1,
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {"type": "text", "text": "Users must be able to reset their password "},
+                {"type": "text", "text": "by email", "marks": [{"type": "strong"}]},
+                {"type": "text", "text": "."}
+              ]
+            },
+            {
+              "type": "bulletList",
+              "content": [
+                {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "The link expires after 30 minutes"}]}]},
+                {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "It should be fast"}]}]}
+              ]
+            }
+          ]
+        },
+        "reporter": {"accountId": "5b10a2844c20165700ede21g", "displayName": "Sarah Client"},
+        "creator": {"accountId": "5b10a2844c20165700ede21g", "displayName": "Sarah Client"},
+        "created": "2026-10-20T09:15:00.000+0000",
+        "updated": "2026-10-20T11:00:00.000+0000"
+      }
+    }
+  ],
+  "nextPageToken": "page-2-token",
+  "isLast": false
+}

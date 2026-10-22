@@ -1,0 +1,17 @@
+{
+  "issues": [
+    {
+      "id": "10002",
+      "key": "ACME-2",
+      "self": "https://acme-demo.atlassian.net/rest/api/3/issue/10002",
+      "fields": {
+        "summary": "Export monthly report",
+        "description": null,
+        "reporter": {"accountId": "5b10ac8d82e05b22cc7d4ef5", "displayName": "Tom Manager"},
+        "created": "2026-10-21T08:00:00.000+0600",
+        "updated": "2026-10-21T08:00:00.000+0600"
+      }
+    }
+  ],
+  "isLast": true
+}

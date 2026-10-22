@@ -6,6 +6,8 @@ import os
 os.environ["JWT_SECRET"] = "test-secret-not-for-production-0123456789"
 
 import itertools  # noqa: E402
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -16,6 +18,20 @@ from sqlalchemy.pool import StaticPool  # noqa: E402
 import app.models  # noqa: E402, F401  (registers models on Base.metadata)
 from app.core.db import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.connectors import http as connector_http  # noqa: E402
+
+API_FIXTURES = Path(__file__).parent / "fixtures" / "api"
+
+
+def api_json(path: str):
+    """A saved sample API response, e.g. api_json("jira/search_page1.json")."""
+    return json.loads((API_FIXTURES / path).read_text(encoding="utf-8"))
+
+
+@pytest.fixture(autouse=True)
+def no_retry_wait(monkeypatch):
+    """Rate-limit retries in connectors do not really sleep in tests."""
+    monkeypatch.setattr(connector_http, "sleep", lambda seconds: None)
 
 
 @pytest.fixture
