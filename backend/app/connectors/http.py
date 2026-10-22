@@ -98,9 +98,13 @@ def send(
     *,
     service: str,
     auth_hint: str = "",
+    allow_status: tuple[int, ...] = (),
     **kwargs: Any,
 ) -> httpx.Response:
-    """Send a request; retry on 429; raise ConnectorError for every other error status."""
+    """Send a request; retry on 429; raise ConnectorError for every other error status.
+
+    Statuses in `allow_status` are returned to the caller, which reads the error body itself.
+    """
     for attempt in range(MAX_RETRIES + 1):
         try:
             response = client.request(method, url, **kwargs)
@@ -117,6 +121,8 @@ def send(
         sleep(wait)
 
     status = response.status_code
+    if status in allow_status:
+        return response
     hint = f" {auth_hint}" if auth_hint else ""
     if status == 401:
         raise ConnectorError(f"{service} rejected the credentials (HTTP 401).{hint}")

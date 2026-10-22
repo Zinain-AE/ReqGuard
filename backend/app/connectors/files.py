@@ -80,6 +80,11 @@ def html_to_text(html: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
+def thread_subject(subject: str) -> str:
+    """The subject without "Re:" / "Fwd:" prefixes, used as the conversation name."""
+    return _REPLY_PREFIX_RE.sub("", " ".join(subject.split()))
+
+
 def _is_outlook_header(lines: list[str], i: int) -> bool:
     """'From: ...' followed within a few lines by 'Sent:' or 'Date:' starts a quoted Outlook reply."""
     if not lines[i].strip().startswith("From:"):
@@ -166,7 +171,7 @@ def parse_eml(data: bytes, filename: str, now: datetime | None = None) -> ParseR
         NormalizedMessage(
             source=EMAIL_SOURCE,
             external_id=message_id or stable_id(EMAIL_SOURCE, author, sent_at.isoformat(), subject, body),
-            channel=_REPLY_PREFIX_RE.sub("", subject) or "(no subject)",
+            channel=thread_subject(subject) or "(no subject)",
             author=author,
             sent_at=sent_at,
             text=text,

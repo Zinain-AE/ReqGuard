@@ -1,0 +1,64 @@
+{
+  "id": "18f0aaaaaaaaaaaa",
+  "historyId": "1002",
+  "messages": [
+    {
+      "id": "18f0aaaaaaaaaaaa",
+      "threadId": "18f0aaaaaaaaaaaa",
+      "labelIds": [
+        "INBOX"
+      ],
+      "internalDate": "1792742400000",
+      "payload": {
+        "mimeType": "multipart/mixed",
+        "filename": "",
+        "headers": [
+          {
+            "name": "From",
+            "value": "\"Müller, Jens\" <jens@acme.example.com>"
+          },
+          {
+            "name": "Subject",
+            "value": "Café menu"
+          }
+        ],
+        "body": {
+          "size": 0
+        },
+        "parts": [
+          {
+            "mimeType": "multipart/alternative",
+            "filename": "",
+            "body": {
+              "size": 0
+            },
+            "parts": [
+              {
+                "mimeType": "text/html",
+                "filename": "",
+                "headers": [
+                  {
+                    "name": "Content-Type",
+                    "value": "text/html; charset=iso-8859-1"
+                  }
+                ],
+                "body": {
+                  "size": 100,
+                  "data": "PHA-VGhlIG1lbnUgbXVzdCBzaG93IHByaWNlcyBpbiAmZXVybzsgYW5kIHRoZSBjYWbpIG9wZW5pbmcgaG91cnMuPC9wPjxibG9ja3F1b3RlPm9sZCBxdW90ZWQgdGV4dDwvYmxvY2txdW90ZT4"
+                }
+              }
+            ]
+          },
+          {
+            "mimeType": "application/pdf",
+            "filename": "menu.pdf",
+            "body": {
+              "attachmentId": "ANGjdJ8",
+              "size": 12345
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
