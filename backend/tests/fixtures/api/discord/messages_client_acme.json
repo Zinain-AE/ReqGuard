@@ -1,0 +1,35 @@
+[
+  {
+    "id": "1300000000000000103",
+    "type": 19,
+    "channel_id": "1290000000000000010",
+    "author": {"id": "500000000000000002", "username": "tom_pm", "global_name": null, "bot": false},
+    "content": "Which file formats for the export?",
+    "timestamp": "2026-10-22T08:05:00.000000+00:00",
+    "message_reference": {"message_id": "1300000000000000101"}
+  },
+  {
+    "id": "1300000000000000102",
+    "type": 7,
+    "channel_id": "1290000000000000010",
+    "author": {"id": "500000000000000009", "username": "newbie"},
+    "content": "",
+    "timestamp": "2026-10-22T08:03:00.000000+00:00"
+  },
+  {
+    "id": "1300000000000000104",
+    "type": 0,
+    "channel_id": "1290000000000000010",
+    "author": {"id": "600000000000000001", "username": "ReqGuardBot", "bot": true},
+    "content": "Synced!",
+    "timestamp": "2026-10-22T08:06:00.000000+00:00"
+  },
+  {
+    "id": "1300000000000000101",
+    "type": 0,
+    "channel_id": "1290000000000000010",
+    "author": {"id": "500000000000000001", "username": "sarah_acme", "global_name": "Sarah Client"},
+    "content": "Admins need to export the user list as CSV.",
+    "timestamp": "2026-10-22T08:00:00.123000+00:00"
+  }
+]
