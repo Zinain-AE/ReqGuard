@@ -1,0 +1,56 @@
+{
+  "ok": true,
+  "result": [
+    {
+      "update_id": 503900001,
+      "message": {
+        "message_id": 41,
+        "from": {"id": 7001, "is_bot": false, "first_name": "Sarah", "last_name": "Client", "username": "sarah_acme"},
+        "chat": {"id": -1001234567890, "title": "Acme project", "type": "supergroup"},
+        "date": 1792656000,
+        "text": "Users should be able to pay with bKash and cards."
+      }
+    },
+    {
+      "update_id": 503900002,
+      "message": {
+        "message_id": 12,
+        "from": {"id": 7001, "is_bot": false, "first_name": "Sarah"},
+        "chat": {"id": 7001, "first_name": "Sarah", "type": "private"},
+        "date": 1792656060,
+        "text": "private hello"
+      }
+    },
+    {
+      "update_id": 503900003,
+      "message": {
+        "message_id": 42,
+        "from": {"id": 7002, "is_bot": false, "username": "tom_pm"},
+        "chat": {"id": -1001234567890, "title": "Acme project", "type": "supergroup"},
+        "date": 1792656120,
+        "photo": [{"file_id": "AgACAgQ", "width": 90, "height": 90}],
+        "caption": "This is the checkout screen they want."
+      }
+    },
+    {
+      "update_id": 503900004,
+      "message": {
+        "message_id": 43,
+        "from": {"id": 7002, "is_bot": false, "first_name": "Tom"},
+        "chat": {"id": -1001234567890, "title": "Acme project", "type": "supergroup"},
+        "date": 1792656180,
+        "new_chat_members": [{"id": 9999, "is_bot": true, "first_name": "ReqGuardBot"}]
+      }
+    },
+    {
+      "update_id": 503900005,
+      "message": {
+        "message_id": 7,
+        "from": {"id": 7003, "is_bot": false, "first_name": "Other"},
+        "chat": {"id": -1009999999999, "title": "Other team", "type": "group"},
+        "date": 1792656240,
+        "text": "Unrelated group"
+      }
+    }
+  ]
+}
