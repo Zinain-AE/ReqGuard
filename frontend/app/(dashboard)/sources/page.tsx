@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import ConnectorCards from "@/components/ConnectorCards";
 import NoProjectSelected from "@/components/NoProjectSelected";
 import SourceBadge, { sourceLabel } from "@/components/SourceBadge";
 import { ErrorBanner, errorText } from "@/components/ui";
@@ -18,11 +20,37 @@ export default function SourcesPage() {
     <div className="max-w-5xl">
       <h1 className="text-2xl font-semibold tracking-tight">Sources</h1>
       <p className="mt-1.5 text-sm text-zinc-400">
-        Upload client conversations. API connectors (Jira, Slack, Telegram, Discord, Gmail) come in Step 4.
+        Connect Jira, Slack, Gmail, Telegram or Discord, or upload chat exports, emails and meeting notes.
       </p>
+      {/* useSearchParams needs a Suspense boundary */}
+      <Suspense fallback={null}>
+        <GmailResultBanner />
+      </Suspense>
       {projectId ? <ProjectSources key={projectId} projectId={projectId} /> : <NoProjectSelected />}
     </div>
   );
+}
+
+// Shown after Google sends the browser back from the Gmail consent page (?gmail=connected|denied|error)
+const GMAIL_RESULTS: Record<string, { text: string; style: string }> = {
+  connected: {
+    text: "Google account connected. You can sync the Gmail source now.",
+    style: "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+  },
+  denied: {
+    text: "Google access was not granted, so the Gmail source cannot sync yet.",
+    style: "border-amber-500/20 bg-amber-500/10 text-amber-300",
+  },
+  error: {
+    text: "Could not connect the Google account. See the Gmail card for details and try again.",
+    style: "border-rose-500/20 bg-rose-500/10 text-rose-300",
+  },
+};
+
+function GmailResultBanner() {
+  const result = GMAIL_RESULTS[useSearchParams().get("gmail") ?? ""];
+  if (!result) return null;
+  return <p className={`mt-4 rounded-lg border px-3.5 py-2.5 text-sm ${result.style}`}>{result.text}</p>;
 }
 
 function ProjectSources({ projectId }: { projectId: string }) {
@@ -87,6 +115,12 @@ function ProjectSources({ projectId }: { projectId: string }) {
 
   return (
     <>
+      <h2 className="mt-8 text-lg font-medium">Connect an API</h2>
+      <div className="mt-3">
+        <ConnectorCards projectId={projectId} sources={sources} onChange={loadSources} />
+      </div>
+
+      <h2 className="mt-10 text-lg font-medium">Upload files</h2>
       <label
         htmlFor="upload-input"
         onDragOver={(e) => {
@@ -99,7 +133,7 @@ function ProjectSources({ projectId }: { projectId: string }) {
           setDragging(false);
           handleFiles(e.dataTransfer.files);
         }}
-        className={`mt-6 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-12 text-center transition ${
+        className={`mt-3 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-12 text-center transition ${
           dragging
             ? "border-indigo-400 bg-indigo-500/10"
             : "border-white/10 bg-zinc-900/40 hover:border-white/20 hover:bg-zinc-900/60"
@@ -129,7 +163,7 @@ function ProjectSources({ projectId }: { projectId: string }) {
       </div>
       {result && <UploadResultCard result={result} />}
 
-      <h2 className="mt-10 text-lg font-medium">Imported sources</h2>
+      <h2 className="mt-10 text-lg font-medium">All sources</h2>
       <ErrorBanner message={loadError} />
       <div className="mt-3 overflow-x-auto rounded-2xl border border-white/10">
         <table className="w-full text-left text-sm">
@@ -138,7 +172,7 @@ function ProjectSources({ projectId }: { projectId: string }) {
               <th className="px-4 py-3 font-medium">Name</th>
               <th className="px-4 py-3 font-medium">Type</th>
               <th className="px-4 py-3 text-right font-medium">Messages</th>
-              <th className="px-4 py-3 font-medium">Last import</th>
+              <th className="px-4 py-3 font-medium">Last import / sync</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -153,7 +187,7 @@ function ProjectSources({ projectId }: { projectId: string }) {
             {sources?.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
-                  Nothing imported yet.
+                  No sources yet.
                 </td>
               </tr>
             )}

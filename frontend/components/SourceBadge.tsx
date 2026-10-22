@@ -5,6 +5,11 @@ export const SOURCE_LABELS: Record<string, string> = {
   messenger: "Messenger",
   email: "Email",
   meeting_notes: "Meeting notes",
+  jira: "Jira",
+  slack: "Slack",
+  gmail: "Gmail",
+  telegram: "Telegram",
+  discord: "Discord",
 };
 
 const SOURCE_STYLE: Record<string, string> = {
@@ -12,6 +17,11 @@ const SOURCE_STYLE: Record<string, string> = {
   messenger: "bg-sky-400/10 text-sky-300 ring-sky-400/30",
   email: "bg-amber-400/10 text-amber-300 ring-amber-400/30",
   meeting_notes: "bg-fuchsia-400/10 text-fuchsia-300 ring-fuchsia-400/30",
+  jira: "bg-blue-400/10 text-blue-300 ring-blue-400/30",
+  slack: "bg-purple-400/10 text-purple-300 ring-purple-400/30",
+  gmail: "bg-red-400/10 text-red-300 ring-red-400/30",
+  telegram: "bg-cyan-400/10 text-cyan-300 ring-cyan-400/30",
+  discord: "bg-indigo-400/10 text-indigo-300 ring-indigo-400/30",
 };
 
 export function sourceLabel(source: string) {

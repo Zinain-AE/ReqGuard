@@ -151,7 +151,8 @@ export function deleteMember(projectId: number | string, memberId: number) {
 
 // ---------- Sources and uploads ----------
 
-export const MESSAGE_SOURCES = ["whatsapp", "messenger", "email", "meeting_notes"] as const;
+export const API_SOURCES = ["jira", "slack", "gmail", "telegram", "discord"] as const;
+export const MESSAGE_SOURCES = ["whatsapp", "messenger", "email", "meeting_notes", ...API_SOURCES] as const;
 export type MessageSource = (typeof MESSAGE_SOURCES)[number];
 
 export type Source = {
@@ -161,7 +162,10 @@ export type Source = {
   config: Record<string, unknown>;
   last_synced_at: string | null;
   created_at: string;
+  sync_status: "ok" | "error" | "needs_auth" | null;
+  sync_error: string | null;
   message_count: number;
+  needs_auth: boolean; // Gmail source without a connected Google account
 };
 
 export type FileImportResult = {
@@ -193,6 +197,47 @@ export function uploadFiles(projectId: number | string, files: File[]) {
 // Permanently deletes the source and every message imported from it
 export function deleteSource(projectId: number | string, sourceId: number) {
   return apiFetch<void>(`/projects/${projectId}/sources/${sourceId}`, { method: "DELETE" });
+}
+
+// ---------- API connectors ----------
+
+// `missing_env` holds the names of .env variables the backend still needs (never their values)
+export type Connector = { type: string; label: string; configured: boolean; missing_env: string[] };
+
+export type SourceCreate = { type: string; display_name: string; settings: Record<string, unknown> };
+
+export type SyncResult = { imported: number; duplicates: number; sync_status: string; last_synced_at: string | null };
+
+export type SourceStatus = {
+  id: number;
+  type: string;
+  configured: boolean;
+  needs_auth: boolean;
+  sync_status: Source["sync_status"];
+  sync_error: string | null;
+  last_synced_at: string | null;
+  message_count: number;
+};
+
+export function listConnectors() {
+  return apiFetch<Connector[]>("/connectors");
+}
+
+export function createSource(projectId: number | string, data: SourceCreate) {
+  return apiFetch<Source>(`/projects/${projectId}/sources`, { method: "POST", body: json(data) });
+}
+
+export function syncSource(projectId: number | string, sourceId: number) {
+  return apiFetch<SyncResult>(`/projects/${projectId}/sources/${sourceId}/sync`, { method: "POST" });
+}
+
+export function getSourceStatus(projectId: number | string, sourceId: number) {
+  return apiFetch<SourceStatus>(`/projects/${projectId}/sources/${sourceId}/status`);
+}
+
+// Google consent page for a Gmail source; the browser is sent there
+export function gmailAuthorizeUrl(projectId: number | string, sourceId: number) {
+  return apiFetch<{ url: string }>(`/projects/${projectId}/sources/${sourceId}/gmail/authorize`);
 }
 
 // ---------- Messages ----------
