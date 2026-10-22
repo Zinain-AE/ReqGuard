@@ -4,6 +4,8 @@ import os
 
 # Must be set before app.core.config is imported
 os.environ["JWT_SECRET"] = "test-secret-not-for-production-0123456789"
+# Empty DATABASE_URL = SQLite, so tests never reach the real database configured in backend/.env
+os.environ["DATABASE_URL"] = ""
 
 import itertools  # noqa: E402
 import json  # noqa: E402
