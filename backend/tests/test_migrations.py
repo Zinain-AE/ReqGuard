@@ -21,6 +21,8 @@ def test_upgrade_and_downgrade(tmp_path, monkeypatch):
     assert {"users", "projects", "team_members", "sources", "messages"} <= set(inspect(engine).get_table_names())
     checks = inspect(engine).get_check_constraints("team_members")
     assert any(c["name"] == "ck_team_members_role" for c in checks)
+    source_columns = {c["name"] for c in inspect(engine).get_columns("sources")}
+    assert {"credentials_encrypted", "sync_status", "sync_error"} <= source_columns
 
     # Deleting a project removes its sources and messages in the database itself
     def on_delete(table: str, referred: str) -> str | None:
