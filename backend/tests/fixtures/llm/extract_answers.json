@@ -1,0 +1,54 @@
+[
+  {
+    "match": "লগইন পেজে OTP লাগবে",
+    "requirements": [
+      {
+        "statement": "The system shall require a one-time password (OTP) on the login page.",
+        "type": "non_functional",
+        "nfr_category": "security",
+        "actor": "user",
+        "confidence": 0.92
+      }
+    ]
+  },
+  {
+    "match": "report ta PDF e download",
+    "requirements": [
+      {
+        "statement": "The system shall let the user download the report as a PDF file.",
+        "type": "functional",
+        "actor": "user",
+        "confidence": 0.88
+      }
+    ]
+  },
+  {
+    "match": "2 second er moddhe load",
+    "requirements": [
+      {
+        "statement": "The system shall load the app within 2 seconds.",
+        "type": "non_functional",
+        "nfr_category": "performance",
+        "actor": "customer",
+        "confidence": 0.85
+      }
+    ]
+  },
+  {
+    "match": "export all orders as CSV",
+    "requirements": [
+      {
+        "statement": "The system shall let the admin export all orders as a CSV file.",
+        "type": "functional",
+        "actor": "admin",
+        "confidence": 0.95
+      },
+      {
+        "statement": "The system shall include every order in the CSV export.",
+        "type": "functional",
+        "actor": "admin",
+        "confidence": 0.6
+      }
+    ]
+  }
+]
