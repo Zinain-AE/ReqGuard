@@ -19,7 +19,6 @@ from typing import Any, ClassVar, Protocol, TypeVar
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from app.connectors.http import ConnectorError, json_body, send
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -27,6 +26,16 @@ logger = logging.getLogger(__name__)
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 # LLM answers can take a while (long batches, "thinking" models)
 TIMEOUT = httpx.Timeout(120.0)
+
+# Overloaded (503) and rate limit (429) are retried; other errors (400, 401, 403, ...) are not
+RETRY_STATUSES = (429, 503)
+# Waits before retry 1, 2 and 3 when the response has no usable Retry-After header
+BACKOFF_SECONDS = (2.0, 4.0, 8.0)
+# A longer Retry-After is not worth blocking the request for; the user can try again later
+MAX_WAIT_SECONDS = 60.0
+
+# Replaced in tests so retries do not wait
+sleep = time.sleep
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -54,7 +63,11 @@ class LLMProvider(Protocol):
 
 
 class GeminiProvider:
-    """Google Gemini through its REST API (generateContent). The key is sent in a header, never in the URL."""
+    """Google Gemini through its REST API (generateContent). The key is sent in a header, never in the URL.
+
+    HTTP 503 (overloaded) and 429 (rate limit) are retried up to 3 times after 2, 4 and 8 seconds, or after
+    the Retry-After header when Gemini sends one. Other errors fail at once.
+    """
 
     name: ClassVar[str] = "gemini"
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -67,30 +80,48 @@ class GeminiProvider:
     def _safe(self, text: str) -> str:
         return text.replace(self._api_key, "***") if self._api_key else text
 
+    def _post(self, body: dict) -> httpx.Response:
+        """POST with retries on 429/503: up to len(BACKOFF_SECONDS) times, waiting Retry-After or the backoff."""
+        url = f"{self.BASE_URL}/models/{self.model}:generateContent"
+        retries = 0
+        while True:
+            try:
+                response = self.client.post(url, headers={"x-goog-api-key": self._api_key}, json=body)
+            except httpx.TimeoutException:
+                raise LLMError("Gemini did not answer in time. Try again later.") from None
+            except httpx.HTTPError:
+                raise LLMError("Could not reach Gemini. Check the internet connection and settings.") from None
+
+            if response.status_code not in RETRY_STATUSES or retries == len(BACKOFF_SECONDS):
+                return response
+            wait = retry_wait(response, retries)
+            if wait > MAX_WAIT_SECONDS:
+                return response
+            retries += 1
+            logger.warning("llm provider=gemini status=%d retry=%d wait_s=%.1f", response.status_code, retries, wait)
+            sleep(wait)
+
     def generate(self, prompt: str) -> LLMResponse:
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
         }
+        response = self._post(body)
         try:
-            response = send(
-                self.client,
-                "POST",
-                f"{self.BASE_URL}/models/{self.model}:generateContent",
-                service="Gemini",
-                # Error statuses are read here, so the message can quote Gemini's own explanation
-                allow_status=tuple(range(400, 600)),
-                headers={"x-goog-api-key": self._api_key},
-                json=body,
-            )
-            data = json_body(response, "Gemini")
-        except ConnectorError as exc:
-            raise LLMError(self._safe(str(exc))) from None
+            data = response.json()
+        except ValueError:
+            data = None
 
-        if response.status_code >= 400:
+        status = response.status_code
+        if status >= 400:
             detail = (data.get("error") or {}).get("message", "") if isinstance(data, dict) else ""
             hint = f": {detail}" if detail else ""
-            raise LLMError(self._safe(f"Gemini returned an error (HTTP {response.status_code}){hint}"))
+            if status in RETRY_STATUSES:
+                problem = "is overloaded" if status == 503 else "rate limit reached"
+                raise LLMError(self._safe(f"Gemini {problem} (HTTP {status}){hint}. Try again in a few minutes."))
+            raise LLMError(self._safe(f"Gemini returned an error (HTTP {status}){hint}"))
+        if not isinstance(data, dict):
+            raise LLMError("Gemini returned a response that is not JSON.")
 
         candidates = data.get("candidates") or []
         parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
@@ -106,6 +137,18 @@ class GeminiProvider:
         if output is not None and usage.get("thoughtsTokenCount"):
             output += usage["thoughtsTokenCount"]
         return LLMResponse(text=text, input_tokens=usage.get("promptTokenCount"), output_tokens=output)
+
+
+def retry_wait(response: httpx.Response, attempt: int) -> float:
+    """Seconds before the next try: the Retry-After header (in seconds) if usable, else the backoff."""
+    header = response.headers.get("Retry-After", "").strip()
+    try:
+        seconds = float(header)
+        if seconds >= 0:
+            return seconds
+    except ValueError:
+        pass
+    return BACKOFF_SECONDS[attempt]
 
 
 PROVIDERS: dict[str, type] = {"gemini": GeminiProvider}

@@ -198,15 +198,104 @@ def test_gemini_error_message_quoting_the_key_is_redacted():
     assert FAKE_KEY not in str(exc.value) and "***" in str(exc.value)
 
 
+# ---------- Gemini retries (429 / 503) ----------
+
+
+@pytest.fixture
+def waits(monkeypatch) -> list[float]:
+    """Seconds the client would have slept before each retry."""
+    calls: list[float] = []
+    monkeypatch.setattr(llm, "sleep", calls.append)
+    return calls
+
+
+def ok():
+    return httpx.Response(200, json=gemini_fixture("gemini_response.json"))
+
+
+def overloaded(**headers):
+    return httpx.Response(503, headers=headers, json={"error": {"code": 503, "message": "The model is overloaded."}})
+
+
 @respx.mock
-def test_gemini_rate_limit_is_retried():
-    respx.post(GEMINI_URL).mock(
-        side_effect=[
-            httpx.Response(429, headers={"Retry-After": "1"}, json={}),
-            httpx.Response(200, json=gemini_fixture("gemini_response.json")),
-        ]
-    )
+def test_gemini_503_then_200_is_retried(waits):
+    route = respx.post(GEMINI_URL).mock(side_effect=[overloaded(), ok()])
+
+    response = GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x")
+
+    assert response.input_tokens == 120
+    assert route.call_count == 2
+    assert waits == [2.0]
+
+
+@respx.mock
+def test_gemini_backoff_is_2_4_8_seconds(waits):
+    route = respx.post(GEMINI_URL).mock(side_effect=[overloaded(), overloaded(), overloaded(), ok()])
+
     assert GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x").input_tokens == 120
+    assert route.call_count == 4
+    assert waits == [2.0, 4.0, 8.0]
+
+
+@respx.mock
+def test_gemini_gives_up_after_3_retries(waits, caplog):
+    route = respx.post(GEMINI_URL).mock(side_effect=[overloaded() for _ in range(5)])
+
+    with caplog.at_level(logging.WARNING, logger="app.ai.llm"), pytest.raises(LLMError) as exc:
+        GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x")
+
+    assert route.call_count == 4  # first try + 3 retries
+    assert waits == [2.0, 4.0, 8.0]
+    assert "overloaded (HTTP 503)" in str(exc.value) and "Try again in a few minutes" in str(exc.value)
+    assert "retry=3" in caplog.text and FAKE_KEY not in caplog.text
+
+
+@respx.mock
+def test_gemini_429_respects_retry_after(waits):
+    limited = httpx.Response(429, headers={"Retry-After": "5"}, json={"error": {"message": "Quota exceeded."}})
+    respx.post(GEMINI_URL).mock(side_effect=[limited, overloaded(**{"Retry-After": "0.5"}), ok()])
+
+    assert GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x").input_tokens == 120
+    assert waits == [5.0, 0.5]
+
+
+@respx.mock
+def test_gemini_unusable_retry_after_falls_back_to_backoff(waits):
+    respx.post(GEMINI_URL).mock(side_effect=[overloaded(**{"Retry-After": "soon"}), overloaded(), ok()])
+
+    GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x")
+
+    assert waits == [2.0, 4.0]
+
+
+@respx.mock
+def test_gemini_too_long_retry_after_is_not_waited_for(waits):
+    limited = httpx.Response(429, headers={"Retry-After": "3600"}, json={"error": {"message": "Daily quota."}})
+    route = respx.post(GEMINI_URL).mock(side_effect=[limited, ok()])
+
+    with pytest.raises(LLMError, match=r"rate limit reached \(HTTP 429\): Daily quota"):
+        GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x")
+    assert route.call_count == 1
+    assert waits == []
+
+
+@respx.mock
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 500])
+def test_gemini_other_errors_are_not_retried(waits, status):
+    route = respx.post(GEMINI_URL).mock(side_effect=[httpx.Response(status, json={"error": {"message": "No."}}), ok()])
+
+    with pytest.raises(LLMError, match=f"HTTP {status}"):
+        GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x")
+    assert route.call_count == 1
+    assert waits == []
+
+
+@respx.mock
+def test_gemini_non_json_error_body(waits):
+    respx.post(GEMINI_URL).mock(side_effect=[httpx.Response(503, text="<html>Service Unavailable</html>")] * 4)
+
+    with pytest.raises(LLMError, match=r"overloaded \(HTTP 503\)\. Try again"):
+        GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x")
 
 
 @respx.mock

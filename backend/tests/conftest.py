@@ -20,6 +20,7 @@ from sqlalchemy.pool import StaticPool  # noqa: E402
 import app.models  # noqa: E402, F401  (registers models on Base.metadata)
 from app.core.db import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.ai import llm  # noqa: E402
 from app.connectors import http as connector_http  # noqa: E402
 
 API_FIXTURES = Path(__file__).parent / "fixtures" / "api"
@@ -32,8 +33,9 @@ def api_json(path: str):
 
 @pytest.fixture(autouse=True)
 def no_retry_wait(monkeypatch):
-    """Rate-limit retries in connectors do not really sleep in tests."""
+    """Rate-limit retries in connectors and the LLM client do not really sleep in tests."""
     monkeypatch.setattr(connector_http, "sleep", lambda seconds: None)
+    monkeypatch.setattr(llm, "sleep", lambda seconds: None)
 
 
 @pytest.fixture
