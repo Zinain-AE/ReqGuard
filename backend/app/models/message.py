@@ -30,3 +30,5 @@ class Message(Base):
     text: Mapped[str] = mapped_column(Text)
     raw: Mapped[dict] = mapped_column(JSON, default=dict)
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # When requirement extraction last read this message (also set when it gave no requirements)
+    requirements_extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

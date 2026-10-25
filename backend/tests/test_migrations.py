@@ -23,6 +23,11 @@ def test_upgrade_and_downgrade(tmp_path, monkeypatch):
     assert any(c["name"] == "ck_team_members_role" for c in checks)
     source_columns = {c["name"] for c in inspect(engine).get_columns("sources")}
     assert {"credentials_encrypted", "sync_status", "sync_error"} <= source_columns
+    assert {"requirements", "requirement_versions", "requirement_sources"} <= set(inspect(engine).get_table_names())
+    assert "requirements_extracted_at" in {c["name"] for c in inspect(engine).get_columns("messages")}
+    assert "requirement_counter" in {c["name"] for c in inspect(engine).get_columns("projects")}
+    requirement_checks = {c["name"] for c in inspect(engine).get_check_constraints("requirements")}
+    assert {"ck_requirements_origin", "ck_requirements_status"} <= requirement_checks
 
     # Deleting a project removes its sources and messages in the database itself
     def on_delete(table: str, referred: str) -> str | None:
@@ -32,6 +37,9 @@ def test_upgrade_and_downgrade(tmp_path, monkeypatch):
     assert on_delete("sources", "projects") == "CASCADE"
     assert on_delete("messages", "projects") == "CASCADE"
     assert on_delete("team_members", "projects") == "CASCADE"
+    assert on_delete("requirements", "projects") == "CASCADE"
+    assert on_delete("requirement_versions", "requirements") == "CASCADE"
+    assert on_delete("requirement_sources", "messages") == "CASCADE"
 
     command.downgrade(config, "base")
     assert set(inspect(engine).get_table_names()) <= {"alembic_version"}

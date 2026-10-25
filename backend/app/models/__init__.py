@@ -2,8 +2,19 @@
 
 from app.models.message import Message
 from app.models.project import Project
+from app.models.requirement import Requirement, RequirementSource, RequirementVersion
 from app.models.source import Source
 from app.models.team_member import TEAM_ROLES, TeamMember
 from app.models.user import User
 
-__all__ = ["Message", "Project", "Source", "TEAM_ROLES", "TeamMember", "User"]
+__all__ = [
+    "Message",
+    "Project",
+    "Requirement",
+    "RequirementSource",
+    "RequirementVersion",
+    "Source",
+    "TEAM_ROLES",
+    "TeamMember",
+    "User",
+]
