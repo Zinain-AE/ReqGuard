@@ -2,7 +2,15 @@
 // The browser only ever talks to this same-origin route, so the token never reaches client JavaScript.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { BACKEND_URL, TOKEN_COOKIE, backendUnreachable } from "@/lib/session";
+import { BACKEND_URL, TOKEN_COOKIE, backendTimeout, backendUnreachable } from "@/lib/session";
+
+// Longest wait for FastAPI. Must stay longer than the backend's longest request: requirement extraction
+// ends after 240 s at the latest, LLM retries included (RUN_TIME_BUDGET_SECONDS in
+// backend/app/nlp/extraction.py). Must stay below Node's own 300 s limit for response headers.
+const BACKEND_TIMEOUT_MS = 285_000;
+
+// Lets hosting platforms (Vercel) run this route as long as the timeout above
+export const maxDuration = 300;
 
 type Context = { params: Promise<{ path: string[] }> };
 
@@ -19,18 +27,21 @@ async function forward(request: NextRequest, { params }: Context) {
   const hasBody = !["GET", "HEAD"].includes(request.method);
 
   let res: Response;
+  let body: ArrayBuffer | null;
   try {
     res = await fetch(url, {
       method: request.method,
       headers,
       body: hasBody ? await request.arrayBuffer() : undefined,
       cache: "no-store",
+      signal: AbortSignal.timeout(BACKEND_TIMEOUT_MS),
     });
-  } catch {
+    body = res.status === 204 ? null : await res.arrayBuffer();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") return backendTimeout(BACKEND_TIMEOUT_MS / 1000);
     return backendUnreachable();
   }
 
-  const body = res.status === 204 ? null : await res.arrayBuffer();
   const response = new NextResponse(body, { status: res.status });
   const resType = res.headers.get("content-type");
   if (resType) response.headers.set("content-type", resType);

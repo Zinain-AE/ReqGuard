@@ -17,6 +17,13 @@ export function backendUnreachable() {
   return NextResponse.json({ detail: "The ReqGuard backend is not reachable." }, { status: 502 });
 }
 
+export function backendTimeout(seconds: number) {
+  return NextResponse.json(
+    { detail: `The ReqGuard backend did not answer within ${seconds} seconds. Try again.` },
+    { status: 504 },
+  );
+}
+
 // Logs in at FastAPI and returns a response that sets the token cookie.
 // `remember` = false gives a session cookie (deleted when the browser closes).
 export async function loginAndSetCookie(email: string, password: string, remember: boolean) {
