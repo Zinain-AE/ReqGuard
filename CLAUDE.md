@@ -6,12 +6,12 @@ ReqGuard is a web platform with two parts:
 - **Part A — requirements from client communication.** Import client messages (Jira, Slack, Telegram, Discord, Gmail by API; WhatsApp and Messenger by chat-export upload; .eml and meeting notes by file upload) into one message format. Use NLP + an LLM to extract requirements (with the source sentence), classify them (functional / non-functional), validate them (vague, missing information, duplicate, conflict, out of scope, module alignment), generate clarification questions, let the team lead approve, generate acceptance criteria and Given/When/Then test cases, and group requirements by module with a suggested assignee.
 - **Part B — traceability and release.** Connect a GitHub Python repository, parse code and tests, recover requirement → code → test links (AI suggests, user confirms), detect two-way drift between two commits, check whether each acceptance criterion has a verifying test, apply rule-based risk findings, and produce a release readiness report (dashboard + PDF + optional pull-request comment).
 
-Capstone project, 2 students, 6 weeks. Keep it simple, working and demo-able. Do not add features that are not in BUILD_PLAN.md.
+Capstone project, 3 students, 6 weeks. Keep it simple, working and demo-able. Do not add features that are not in BUILD_PLAN.md.
 
 ## Stack
 - Backend: Python 3.11, FastAPI, SQLAlchemy 2.x, Alembic, Pydantic v2, pytest
 - Database: PostgreSQL (Supabase) with pgvector; SQLite allowed only for local unit tests
-- NLP: spaCy (en_core_web_sm), sentence-transformers (all-MiniLM-L6-v2), Hugging Face NLI model (cross-encoder/nli-deberta-v3-small), scikit-learn
+- NLP: spaCy (en_core_web_sm), sentence-transformers (all-MiniLM-L6-v2), Hugging Face NLI model (cross-encoder/nli-deberta-v3-small),   scikit-learn. These run on the English requirement text only; reading Bangla/Banglish messages is done by the LLM during extraction.
 - LLM: provider-agnostic client in `backend/app/ai/llm.py`; model and key from env vars; always request JSON and validate with a Pydantic schema
 - Code analysis: GitPython, Python `ast`
 - Frontend: Next.js (App Router) + TypeScript + Tailwind CSS, React Flow for graphs
@@ -52,7 +52,9 @@ docs/
 7. **Cautious wording** in findings: "possible conflict", "potential test gap". Never say a release is safe.
 8. Write pytest tests for: connectors' parsers (with fixture files), validation rules, drift rules, risk rules. Do not call real external APIs in tests — use fixtures/mocks.
 9. Small commits with clear messages. After finishing a task, run `pytest` (backend) and `npm run lint && npm run build` (frontend) before saying it is done.
-10. 10. Client messages may be in English, Bangla (Bengali script) or Banglish (Bangla written in Latin letters), often mixed in one message. Store message text exactly as received. Extracted requirements are written in English, and each keeps the original source sentence unchanged. Analysed repositories: Python only.
+10. Client messages may be in English, Bangla (Bengali script) or Banglish (Bangla written in Latin letters), often mixed in one message. Store message text exactly as received. Extracted requirements are written in English, and each keeps the original source sentence unchanged. Analysed repositories: Python only.
+
+11. Never add "Co-Authored-By" or any AI attribution lines to commit messages.
 
 ## Commands
 - Backend: `cd backend && uvicorn app.main:app --reload` · tests: `cd backend && pytest -q` · migrations: `alembic revision --autogenerate -m "..." && alembic upgrade head`
