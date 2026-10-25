@@ -4,8 +4,10 @@
   `{{variable}}` placeholders, asks for JSON only, validates the answer with the Pydantic `schema`,
   retries once when the answer is invalid, and raises `LLMError` with a clear message after that.
 - Providers only turn a prompt into text. Add a new provider as one more class in `PROVIDERS`.
-- Logged per call: prompt name, provider, model, attempt, tokens and latency. Never the API key,
-  and never the prompt or answer text (it contains client messages).
+- Optional per call: `thinking` (a reasoning level hint, e.g. "low") and `deadline` (a `clock()` time by
+  which the call must end; HTTP attempts and retries are cut to fit, so a request has a known maximum).
+- Logged per HTTP attempt and per call: provider, model, attempt, status, tokens and elapsed time.
+  Never the API key, and never the prompt or answer text (it contains client messages).
 """
 
 import json
@@ -24,8 +26,6 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
-# LLM answers can take a while (long batches, "thinking" models)
-TIMEOUT = httpx.Timeout(120.0)
 
 # Overloaded (503) and rate limit (429) are retried; other errors (400, 401, 403, ...) are not
 RETRY_STATUSES = (429, 503)
@@ -33,9 +33,23 @@ RETRY_STATUSES = (429, 503)
 BACKOFF_SECONDS = (2.0, 4.0, 8.0)
 # A longer Retry-After is not worth blocking the request for; the user can try again later
 MAX_WAIT_SECONDS = 60.0
+# No HTTP attempt is started with less time than this left before the deadline
+MIN_ATTEMPT_SECONDS = 5.0
 
-# Replaced in tests so retries do not wait
+# Replaced in tests so retries do not wait and deadlines can be simulated
 sleep = time.sleep
+clock = time.monotonic
+
+
+def now() -> float:
+    """Current `clock()` time; deadlines are given in this clock."""
+    return clock()
+
+
+def thinking_level(value: str | None) -> str | None:
+    """A configured thinking level, or None for "default" / empty (then the model decides)."""
+    level = (value or "").strip().lower()
+    return None if level in ("", "default") else level
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -59,54 +73,81 @@ class LLMProvider(Protocol):
     name: str
     model: str
 
-    def generate(self, prompt: str) -> LLMResponse: ...
+    def generate(self, prompt: str, *, thinking: str | None = None, deadline: float | None = None) -> LLMResponse: ...
 
 
 class GeminiProvider:
     """Google Gemini through its REST API (generateContent). The key is sent in a header, never in the URL.
 
     HTTP 503 (overloaded) and 429 (rate limit) are retried up to 3 times after 2, 4 and 8 seconds, or after
-    the Retry-After header when Gemini sends one. Other errors fail at once.
+    the Retry-After header when Gemini sends one. Other errors fail at once. `thinking` is sent as
+    generationConfig.thinkingConfig.thinkingLevel.
     """
 
     name: ClassVar[str] = "gemini"
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
-    def __init__(self, model: str, api_key: str, client: httpx.Client | None = None):
+    def __init__(self, model: str, api_key: str, client: httpx.Client | None = None, timeout: float = 120.0):
         self.model = model
         self._api_key = api_key
-        self.client = client or httpx.Client(timeout=TIMEOUT)
+        self.timeout = timeout
+        self.client = client or httpx.Client()
 
     def _safe(self, text: str) -> str:
         return text.replace(self._api_key, "***") if self._api_key else text
 
-    def _post(self, body: dict) -> httpx.Response:
-        """POST with retries on 429/503: up to len(BACKOFF_SECONDS) times, waiting Retry-After or the backoff."""
+    def _log_attempt(self, attempt: int, outcome: object, started: float) -> None:
+        logger.info(
+            "llm http provider=gemini model=%s attempt=%d status=%s elapsed_ms=%d",
+            self.model,
+            attempt,
+            outcome,
+            (time.perf_counter() - started) * 1000,
+        )
+
+    def _post(self, body: dict, deadline: float | None) -> httpx.Response:
+        """POST with retries on 429/503: up to len(BACKOFF_SECONDS) times, waiting Retry-After or the backoff.
+
+        Each attempt waits at most `self.timeout` seconds, and never past the deadline.
+        """
         url = f"{self.BASE_URL}/models/{self.model}:generateContent"
         retries = 0
         while True:
+            timeout = self.timeout
+            if deadline is not None:
+                timeout = min(timeout, deadline - now())
+                if timeout < MIN_ATTEMPT_SECONDS:
+                    raise LLMError("Gemini did not answer in time. Try again later.")
+            started = time.perf_counter()
             try:
-                response = self.client.post(url, headers={"x-goog-api-key": self._api_key}, json=body)
+                response = self.client.post(
+                    url, headers={"x-goog-api-key": self._api_key}, json=body, timeout=httpx.Timeout(timeout)
+                )
             except httpx.TimeoutException:
-                raise LLMError("Gemini did not answer in time. Try again later.") from None
+                self._log_attempt(retries + 1, "timeout", started)
+                raise LLMError(f"Gemini did not answer within {timeout:.0f} seconds. Try again later.") from None
             except httpx.HTTPError:
+                self._log_attempt(retries + 1, "network_error", started)
                 raise LLMError("Could not reach Gemini. Check the internet connection and settings.") from None
+            self._log_attempt(retries + 1, response.status_code, started)
 
             if response.status_code not in RETRY_STATUSES or retries == len(BACKOFF_SECONDS):
                 return response
             wait = retry_wait(response, retries)
             if wait > MAX_WAIT_SECONDS:
                 return response
+            if deadline is not None and now() + wait + MIN_ATTEMPT_SECONDS > deadline:
+                return response  # no time left for another attempt
             retries += 1
             logger.warning("llm provider=gemini status=%d retry=%d wait_s=%.1f", response.status_code, retries, wait)
             sleep(wait)
 
-    def generate(self, prompt: str) -> LLMResponse:
-        body = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
-        }
-        response = self._post(body)
+    def generate(self, prompt: str, *, thinking: str | None = None, deadline: float | None = None) -> LLMResponse:
+        config: dict[str, Any] = {"responseMimeType": "application/json", "temperature": 0}
+        if thinking:
+            config["thinkingConfig"] = {"thinkingLevel": thinking}
+        body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": config}
+        response = self._post(body, deadline)
         try:
             data = response.json()
         except ValueError:
@@ -225,11 +266,21 @@ class LLMClient:
     def __init__(self, provider: LLMProvider):
         self.provider = provider
 
-    def complete_json(self, prompt_name: str, variables: dict[str, Any], schema: type[T]) -> T:
+    def complete_json(
+        self,
+        prompt_name: str,
+        variables: dict[str, Any],
+        schema: type[T],
+        *,
+        thinking: str | None = None,
+        deadline: float | None = None,
+    ) -> T:
         prompt = render_prompt(prompt_name, variables, schema)
         attempt_prompt = prompt
         for attempt in (1, 2):
-            response = self._call(prompt_name, attempt_prompt, attempt)
+            if attempt == 2 and deadline is not None and now() + MIN_ATTEMPT_SECONDS > deadline:
+                raise LLMError("The AI returned an invalid answer and there was no time left to ask again. Try again.")
+            response = self._call(prompt_name, attempt_prompt, attempt, thinking, deadline)
             try:
                 return parse_answer(response.text, schema)
             except InvalidAnswer as exc:
@@ -237,15 +288,32 @@ class LLMClient:
                 attempt_prompt = prompt + RETRY_NOTE.format(reason=exc)
         raise LLMError("The AI returned an invalid answer twice. Try again; if it keeps failing, try another model.")
 
-    def _call(self, prompt_name: str, prompt: str, attempt: int) -> LLMResponse:
+    def _call(
+        self, prompt_name: str, prompt: str, attempt: int, thinking: str | None, deadline: float | None
+    ) -> LLMResponse:
+        """One call to the provider (its HTTP retries included), logged with the elapsed time."""
         started = time.perf_counter()
-        response = self.provider.generate(prompt)
+        try:
+            response = self.provider.generate(prompt, thinking=thinking, deadline=deadline)
+        except LLMError:
+            logger.warning(
+                "llm call failed prompt=%s provider=%s model=%s attempt=%d thinking=%s elapsed_ms=%d",
+                prompt_name,
+                self.provider.name,
+                self.provider.model,
+                attempt,
+                thinking or "default",
+                (time.perf_counter() - started) * 1000,
+            )
+            raise
         logger.info(
-            "llm call prompt=%s provider=%s model=%s attempt=%d input_tokens=%s output_tokens=%s latency_ms=%d",
+            "llm call prompt=%s provider=%s model=%s attempt=%d thinking=%s input_tokens=%s output_tokens=%s "
+            "elapsed_ms=%d",
             prompt_name,
             self.provider.name,
             self.provider.model,
             attempt,
+            thinking or "default",
             response.input_tokens,
             response.output_tokens,
             (time.perf_counter() - started) * 1000,
@@ -272,9 +340,15 @@ def get_llm() -> LLMClient:
         raise LLMNotConfiguredError(
             f"LLM_PROVIDER '{provider_name}' is not supported. Supported: {', '.join(sorted(PROVIDERS))}."
         )
-    return LLMClient(provider_cls(model=settings.llm_model.strip(), api_key=settings.llm_api_key.strip()))
+    return LLMClient(
+        provider_cls(
+            model=settings.llm_model.strip(),
+            api_key=settings.llm_api_key.strip(),
+            timeout=settings.llm_timeout_seconds,
+        )
+    )
 
 
-def complete_json(prompt_name: str, variables: dict[str, Any], schema: type[T]) -> T:
+def complete_json(prompt_name: str, variables: dict[str, Any], schema: type[T], **options: Any) -> T:
     """Shortcut for `get_llm().complete_json(...)`."""
-    return get_llm().complete_json(prompt_name, variables, schema)
+    return get_llm().complete_json(prompt_name, variables, schema, **options)

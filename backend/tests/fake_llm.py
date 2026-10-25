@@ -19,10 +19,12 @@ class FakeLLM(LLMClient):
         self.fail_on_call = fail_on_call
         self.extra = extra or []
         self.calls: list[dict] = []
+        self.options: list[dict] = []  # thinking / deadline of each call
 
-    def complete_json(self, prompt_name, variables, schema):
+    def complete_json(self, prompt_name, variables, schema, **options):
         assert prompt_name == "extract_requirements"
         self.calls.append(variables)
+        self.options.append(options)
         if self.fail_on_call == len(self.calls):
             raise LLMError("The AI returned an invalid answer twice. Try again.")
         found = []

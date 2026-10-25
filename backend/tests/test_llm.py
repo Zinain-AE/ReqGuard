@@ -36,9 +36,11 @@ class ScriptedProvider:
     def __init__(self, *answers: str):
         self.answers = list(answers)
         self.prompts: list[str] = []
+        self.options: list[dict] = []
 
-    def generate(self, prompt: str) -> LLMResponse:
+    def generate(self, prompt: str, **options) -> LLMResponse:
         self.prompts.append(prompt)
+        self.options.append(options)
         return LLMResponse(text=self.answers.pop(0), input_tokens=10, output_tokens=5)
 
 
@@ -120,8 +122,40 @@ def test_call_is_logged_without_texts(prompts_dir, caplog):
 
     log = caplog.text
     assert "prompt=echo" in log and "input_tokens=10" in log and "output_tokens=5" in log
-    assert "latency_ms=" in log and "attempt=2" in log
+    assert "elapsed_ms=" in log and "attempt=2" in log
     assert "লগইন" not in log  # neither the prompt nor the answer text
+
+
+def test_thinking_and_deadline_reach_the_provider(prompts_dir):
+    provider = ScriptedProvider('{"answer": "ok", "score": 0.5}')
+
+    LLMClient(provider).complete_json("echo", VARS, Answer, thinking="low", deadline=123.0)
+
+    assert provider.options == [{"thinking": "low", "deadline": 123.0}]
+
+
+def test_no_second_json_attempt_without_time_left(prompts_dir, monkeypatch):
+    monkeypatch.setattr(llm, "clock", lambda: 100.0)
+    provider = ScriptedProvider("not json", '{"answer": "ok", "score": 0.5}')
+
+    with pytest.raises(LLMError, match="no time left"):
+        LLMClient(provider).complete_json("echo", VARS, Answer, deadline=103.0)
+    assert len(provider.prompts) == 1
+
+
+def test_failed_call_is_logged_with_elapsed_time(prompts_dir, caplog):
+    class Failing(ScriptedProvider):
+        def generate(self, prompt, **options):
+            raise LLMError("Gemini did not answer within 120 seconds. Try again later.")
+
+    with caplog.at_level(logging.INFO, logger="app.ai.llm"), pytest.raises(LLMError):
+        LLMClient(Failing()).complete_json("echo", VARS, Answer)
+    assert "llm call failed prompt=echo" in caplog.text and "elapsed_ms=" in caplog.text
+
+
+@pytest.mark.parametrize("value, level", [("low", "low"), (" LOW ", "low"), ("default", None), ("", None), (None, None)])
+def test_thinking_level(value, level):
+    assert llm.thinking_level(value) == level
 
 
 # ---------- configuration ----------
@@ -152,9 +186,18 @@ def test_gemini_is_built_from_settings(monkeypatch):
     monkeypatch.setattr(settings, "llm_model", "gemini-2.5-flash")
     monkeypatch.setattr(settings, "llm_api_key", FAKE_KEY)
 
+    monkeypatch.setattr(settings, "llm_timeout_seconds", 90.0)
+
     client = llm.get_llm()
     assert isinstance(client.provider, GeminiProvider)
     assert client.provider.model == "gemini-2.5-flash"
+    assert client.provider.timeout == 90.0
+
+
+def test_timeout_default_is_120_seconds():
+    fields = type(settings).model_fields
+    assert fields["llm_timeout_seconds"].default == 120.0
+    assert fields["llm_extraction_thinking"].default == "low"
 
 
 # ---------- Gemini over HTTP ----------
@@ -172,8 +215,52 @@ def test_gemini_request_and_response():
     body = json.loads(request.content)
     assert body["contents"][0]["parts"][0]["text"] == "প্রশ্ন: hello"
     assert body["generationConfig"]["responseMimeType"] == "application/json"
+    assert "thinkingConfig" not in body["generationConfig"]  # no level given: the model decides
+    assert request.extensions["timeout"]["read"] == 120.0
     assert json.loads(response.text) == {"answer": "লগইন পেজে OTP লাগবে", "score": 0.9}
     assert (response.input_tokens, response.output_tokens) == (120, 58)  # output includes thinking tokens
+
+
+@respx.mock
+def test_gemini_thinking_level_and_timeout_are_sent():
+    route = respx.post(GEMINI_URL).mock(return_value=httpx.Response(200, json=gemini_fixture("gemini_response.json")))
+
+    GeminiProvider("gemini-2.5-flash", FAKE_KEY, timeout=45.0).generate("x", thinking="low")
+
+    request = route.calls.last.request
+    assert json.loads(request.content)["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "low"}
+    assert request.extensions["timeout"]["read"] == 45.0
+
+
+@respx.mock
+def test_gemini_attempt_timeout_is_cut_to_the_deadline(monkeypatch):
+    monkeypatch.setattr(llm, "clock", lambda: 1000.0)
+    route = respx.post(GEMINI_URL).mock(return_value=httpx.Response(200, json=gemini_fixture("gemini_response.json")))
+
+    GeminiProvider("gemini-2.5-flash", FAKE_KEY, timeout=120.0).generate("x", deadline=1030.0)
+
+    assert route.calls.last.request.extensions["timeout"]["read"] == 30.0
+
+
+@respx.mock
+def test_gemini_no_attempt_after_the_deadline(monkeypatch):
+    monkeypatch.setattr(llm, "clock", lambda: 1000.0)
+    route = respx.post(GEMINI_URL).mock(return_value=httpx.Response(200, json=gemini_fixture("gemini_response.json")))
+
+    with pytest.raises(LLMError, match="did not answer in time"):
+        GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x", deadline=1002.0)
+    assert route.call_count == 0
+
+
+@respx.mock
+def test_gemini_timeout_says_how_long_and_logs_elapsed(caplog):
+    respx.post(GEMINI_URL).mock(side_effect=httpx.ReadTimeout("slow"))
+
+    with caplog.at_level(logging.INFO, logger="app.ai.llm"), pytest.raises(LLMError) as exc:
+        GeminiProvider("gemini-2.5-flash", FAKE_KEY, timeout=120.0).generate("x")
+
+    assert "did not answer within 120 seconds" in str(exc.value)
+    assert "status=timeout" in caplog.text and "elapsed_ms=" in caplog.text
 
 
 @respx.mock
@@ -257,6 +344,29 @@ def test_gemini_429_respects_retry_after(waits):
 
     assert GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x").input_tokens == 120
     assert waits == [5.0, 0.5]
+
+
+@respx.mock
+def test_gemini_no_retry_when_the_wait_would_pass_the_deadline(waits, monkeypatch):
+    monkeypatch.setattr(llm, "clock", lambda: 1000.0)
+    route = respx.post(GEMINI_URL).mock(side_effect=[overloaded(), ok()])
+
+    # 2 s backoff + 5 s minimum attempt would end after the deadline
+    with pytest.raises(LLMError, match=r"overloaded \(HTTP 503\)"):
+        GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x", deadline=1006.0)
+    assert route.call_count == 1
+    assert waits == []
+
+
+@respx.mock
+def test_gemini_each_attempt_is_logged(waits, caplog):
+    respx.post(GEMINI_URL).mock(side_effect=[overloaded(), ok()])
+
+    with caplog.at_level(logging.INFO, logger="app.ai.llm"):
+        GeminiProvider("gemini-2.5-flash", FAKE_KEY).generate("x")
+
+    assert "attempt=1 status=503 elapsed_ms=" in caplog.text
+    assert "attempt=2 status=200 elapsed_ms=" in caplog.text
 
 
 @respx.mock

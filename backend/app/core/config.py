@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     llm_provider: str | None = None
     llm_model: str | None = None
     llm_api_key: str | None = None
+    # Seconds to wait for one LLM HTTP response (thinking models can be slow when the service is busy)
+    llm_timeout_seconds: float = 120.0
+    # Gemini thinking level for requirement extraction: minimal | low | medium | high, or "default" to send
+    # none (the model decides). The lowest level differs per model: gemini-3.8-flash rejects "minimal".
+    llm_extraction_thinking: str = "low"
 
     # Connectors
     jira_base_url: str | None = None

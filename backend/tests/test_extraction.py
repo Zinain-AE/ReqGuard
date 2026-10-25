@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.ai import llm as llm_module
 from app.ai.llm import load_prompt
+from app.core.config import settings
 from app.models import Message, Project, Requirement, User
 from app.nlp import extraction
 from app.nlp.extraction import (
@@ -88,6 +90,10 @@ def test_batches_respect_char_limit_and_keep_long_messages():
 
 def test_no_batches_for_nothing():
     assert make_batches([]) == []
+
+
+def test_default_batch_is_8_messages():
+    assert [len(b) for b in make_batches([_item(i, 10) for i in range(1, 21)])] == [8, 8, 4]
 
 
 # ---------- ids → exact sentences ----------
@@ -237,6 +243,40 @@ def test_llm_error_keeps_finished_batches(db, project, monkeypatch):
 
     again = extract_requirements(db, project, FakeLLM())
     assert (again.messages_processed, again.requirements_created, again.error) == (1, 2, None)
+
+
+def test_llm_gets_thinking_level_and_run_deadline(db, project, monkeypatch):
+    monkeypatch.setattr(llm_module, "clock", lambda: 500.0)
+    monkeypatch.setattr(settings, "llm_extraction_thinking", "low")
+    add_messages(db, project, BANGLA_OTP)
+    llm = FakeLLM()
+
+    extract_requirements(db, project, llm)
+
+    assert llm.options == [{"thinking": "low", "deadline": 500.0 + extraction.RUN_TIME_BUDGET_SECONDS}]
+
+
+def test_thinking_default_sends_no_level(db, project, monkeypatch):
+    monkeypatch.setattr(settings, "llm_extraction_thinking", "default")
+    add_messages(db, project, BANGLA_OTP)
+    llm = FakeLLM()
+
+    extract_requirements(db, project, llm)
+
+    assert llm.options[0]["thinking"] is None
+
+
+def test_run_stops_starting_batches_when_time_is_up(db, project, monkeypatch):
+    times = iter([0.0, 5.0, 230.0])  # deadline set at 0; batch 1 starts at 5; batch 2 would start at 230
+    monkeypatch.setattr(llm_module, "clock", lambda: next(times))
+    monkeypatch.setattr(extraction, "MAX_BATCH_MESSAGES", 1)
+    add_messages(db, project, "ok", BANGLA_OTP, "Admin should be able to export all orders as CSV.")
+    llm = FakeLLM()
+
+    result = extract_requirements(db, project, llm)
+
+    assert len(llm.calls) == 1
+    assert (result.messages_processed, result.messages_remaining, result.error) == (2, 1, None)
 
 
 def test_per_run_limit(db, project, monkeypatch):

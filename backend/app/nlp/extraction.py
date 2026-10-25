@@ -23,7 +23,8 @@ from functools import lru_cache
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.ai.llm import LLMClient, LLMError
+from app.ai.llm import LLMClient, LLMError, now, thinking_level
+from app.core.config import settings
 from app.models import Message, Project, Requirement, RequirementSource, RequirementVersion
 from app.models.requirement import requirement_code
 from app.schemas.extraction import ExtractedRequirement, ExtractionAnswer, ExtractResult
@@ -31,9 +32,15 @@ from app.schemas.extraction import ExtractedRequirement, ExtractionAnswer, Extra
 logger = logging.getLogger(__name__)
 
 PROMPT = "extract_requirements"
-# Keeps one request well under the frontend proxy's ~5 minute wait; the result says how many are left
+# Limits for one run (one click on "Extract requirements"); the result says how many messages are left
 MAX_MESSAGES_PER_RUN = 100
-MAX_BATCH_MESSAGES = 15
+# One run stops starting new batches after this many seconds, and every LLM call (with its retries) gets
+# this deadline, so the request always ends before the frontend proxy gives up (BACKEND_TIMEOUT_MS = 285 s
+# in frontend/app/api/backend/[...path]/route.ts). Keep the two in step.
+RUN_TIME_BUDGET_SECONDS = 240.0
+# A new batch is only started with at least this much of the budget left
+MIN_BATCH_SECONDS = 30.0
+MAX_BATCH_MESSAGES = 8
 MAX_BATCH_CHARS = 6000
 CONTEXT_CHARS = 300
 
@@ -305,6 +312,7 @@ def extract_requirements(
 
     force=True reads all messages again; `message_ids` reads only those (again). Each batch is committed on
     its own, so an LLM error keeps the work already done and the rest can be continued with another run.
+    A run ends after RUN_TIME_BUDGET_SECONDS at the latest.
     """
     if force or message_ids is not None:
         # Mark the chosen messages as unread, so a run stopped by the per-run limit continues with a normal run
@@ -336,11 +344,21 @@ def extract_requirements(
         db.commit()
         result.messages_small_talk = result.messages_processed = len(small_talk)
 
+    deadline = now() + RUN_TIME_BUDGET_SECONDS
+    thinking = thinking_level(settings.llm_extraction_thinking)
     for batch in make_batches(items):
+        if now() + MIN_BATCH_SECONDS > deadline:
+            break  # out of time for this run; the rest stays waiting for the next one
         sentences = {s.id: s for item in batch for s in item.sentences}
         try:
             result.llm_calls += 1
-            answer = llm.complete_json(PROMPT, {"batch": [item.payload() for item in batch]}, ExtractionAnswer)
+            answer = llm.complete_json(
+                PROMPT,
+                {"batch": [item.payload() for item in batch]},
+                ExtractionAnswer,
+                thinking=thinking,
+                deadline=deadline,
+            )
         except LLMError as exc:
             db.rollback()
             result.error = str(exc)
