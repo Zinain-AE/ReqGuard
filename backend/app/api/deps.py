@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.ai.llm import LLMClient, LLMNotConfiguredError, get_llm
 from app.core.db import get_db
 from app.core.security import InvalidTokenError, decode_access_token
 from app.models import Project, User
@@ -51,3 +52,14 @@ def get_owned_project(project_id: int, db: DbSession, user: CurrentUser) -> Proj
 
 
 OwnedProject = Annotated[Project, Depends(get_owned_project)]
+
+
+def get_llm_client() -> LLMClient:
+    """The configured LLM client; 503 naming the missing .env variables when it is not set up."""
+    try:
+        return get_llm()
+    except LLMNotConfiguredError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from None
+
+
+LLM = Annotated[LLMClient, Depends(get_llm_client)]

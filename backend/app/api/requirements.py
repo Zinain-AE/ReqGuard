@@ -1,0 +1,184 @@
+"""Requirements of a project: AI extraction, list, edit (new version), accept / reject / merge. Owner only."""
+
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from app.api.deps import LLM, CurrentUser, DbSession, OwnedProject
+from app.models import Project, Requirement, RequirementSource, RequirementVersion
+from app.nlp.extraction import extract_requirements
+from app.schemas.extraction import ExtractResult
+from app.schemas.requirement import (
+    ExtractRequest,
+    MergeRequest,
+    RequirementDetail,
+    RequirementOut,
+    RequirementSourceOut,
+    RequirementStatus,
+    RequirementType,
+    RequirementUpdate,
+    RequirementVersionOut,
+)
+
+router = APIRouter(prefix="/projects/{project_id}/requirements", tags=["requirements"])
+
+_LOAD = (
+    selectinload(Requirement.versions),
+    selectinload(Requirement.sources).selectinload(RequirementSource.message),
+)
+
+
+def _get(db: Session, project: Project, requirement_id: int) -> Requirement:
+    requirement = db.scalar(select(Requirement).where(Requirement.id == requirement_id).options(*_LOAD))
+    if requirement is None or requirement.project_id != project.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Requirement not found")
+    return requirement
+
+
+def _out(r: Requirement) -> RequirementOut:
+    return RequirementOut(
+        id=r.id,
+        code=r.code,
+        origin=r.origin,
+        status=r.status,
+        merged_into_id=r.merged_into_id,
+        created_at=r.created_at,
+        updated_at=r.updated_at,
+        current=RequirementVersionOut.model_validate(r.current),
+        version_count=len(r.versions),
+        sources=[
+            RequirementSourceOut(
+                message_id=s.message_id,
+                source_sentence=s.source_sentence,
+                source=s.message.source,
+                channel=s.message.channel,
+                author=s.message.author,
+                sent_at=s.message.sent_at,
+            )
+            for s in r.sources
+        ],
+    )
+
+
+def _detail(r: Requirement) -> RequirementDetail:
+    return RequirementDetail(
+        **_out(r).model_dump(), versions=[RequirementVersionOut.model_validate(v) for v in r.versions]
+    )
+
+
+def _ensure_changeable(requirement: Requirement, *, editing: bool) -> None:
+    """Merged requirements are closed; rejected ones can change status but not get new content."""
+    if requirement.status == "merged":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=f"{requirement.code} was merged into another requirement"
+        )
+    if editing and requirement.status == "rejected":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=f"{requirement.code} is rejected and cannot be edited")
+
+
+@router.post("/extract", response_model=ExtractResult)
+def extract(project: OwnedProject, db: DbSession, llm: LLM, body: ExtractRequest | None = None) -> ExtractResult:
+    """Extract requirements from messages not read yet (or again, with force / message_ids)."""
+    body = body or ExtractRequest()
+    result = extract_requirements(db, project, llm, force=body.force, message_ids=body.message_ids)
+    if result.error and result.messages_processed == 0:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=result.error)
+    return result
+
+
+@router.get("", response_model=list[RequirementOut])
+def list_requirements(
+    project: OwnedProject,
+    db: DbSession,
+    status_: Annotated[RequirementStatus | None, Query(alias="status")] = None,
+    type_: Annotated[RequirementType | None, Query(alias="type")] = None,
+) -> list[RequirementOut]:
+    query = select(Requirement).where(Requirement.project_id == project.id).options(*_LOAD).order_by(Requirement.number)
+    if status_:
+        query = query.where(Requirement.status == status_)
+    items = [_out(r) for r in db.scalars(query).all()]
+    # The type lives in the current version
+    return [r for r in items if r.current.type == type_] if type_ else items
+
+
+@router.get("/{requirement_id}", response_model=RequirementDetail)
+def get_requirement(requirement_id: int, project: OwnedProject, db: DbSession) -> RequirementDetail:
+    return _detail(_get(db, project, requirement_id))
+
+
+@router.patch("/{requirement_id}", response_model=RequirementDetail)
+def edit_requirement(
+    requirement_id: int, body: RequirementUpdate, project: OwnedProject, db: DbSession, user: CurrentUser
+) -> RequirementDetail:
+    """Save the change as a new version (the old versions stay as they are) and mark the requirement edited."""
+    requirement = _get(db, project, requirement_id)
+    _ensure_changeable(requirement, editing=True)
+    current = requirement.current
+    changes = body.model_dump(exclude_unset=True)
+    new_type = changes.get("type") or current.type
+    category = changes["nfr_category"] if "nfr_category" in changes else current.nfr_category
+    if new_type == "functional":
+        category = None
+    elif category is None:
+        category = "other"
+    requirement.versions.append(
+        RequirementVersion(
+            version=current.version + 1,
+            statement=changes.get("statement") or current.statement,
+            type=new_type,
+            nfr_category=category,
+            actor=changes["actor"] if changes.get("actor") is not None else current.actor,
+            confidence=None,
+            origin="user",
+            created_by_id=user.id,
+        )
+    )
+    requirement.status = "edited"
+    db.commit()
+    return _detail(_get(db, project, requirement_id))
+
+
+def _set_status(db: Session, project: Project, requirement_id: int, new_status: str) -> RequirementDetail:
+    requirement = _get(db, project, requirement_id)
+    _ensure_changeable(requirement, editing=False)
+    requirement.status = new_status
+    db.commit()
+    return _detail(_get(db, project, requirement_id))
+
+
+@router.post("/{requirement_id}/accept", response_model=RequirementDetail)
+def accept_requirement(requirement_id: int, project: OwnedProject, db: DbSession) -> RequirementDetail:
+    return _set_status(db, project, requirement_id, "accepted")
+
+
+@router.post("/{requirement_id}/reject", response_model=RequirementDetail)
+def reject_requirement(requirement_id: int, project: OwnedProject, db: DbSession) -> RequirementDetail:
+    return _set_status(db, project, requirement_id, "rejected")
+
+
+@router.post("/{requirement_id}/merge", response_model=RequirementDetail)
+def merge_requirements(
+    requirement_id: int, body: MergeRequest, project: OwnedProject, db: DbSession
+) -> RequirementDetail:
+    """Fold other requirements into this one: their source sentences are added here, they become "merged"."""
+    target = _get(db, project, requirement_id)
+    _ensure_changeable(target, editing=True)
+    other_ids = list(dict.fromkeys(body.other_ids))
+    if requirement_id in other_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="A requirement cannot be merged into itself")
+    others = [_get(db, project, rid) for rid in other_ids]
+    for other in others:
+        _ensure_changeable(other, editing=False)
+
+    have = {(s.message_id, s.source_sentence) for s in target.sources}
+    for other in others:
+        for s in other.sources:
+            if (s.message_id, s.source_sentence) not in have:
+                target.sources.append(RequirementSource(message_id=s.message_id, source_sentence=s.source_sentence))
+                have.add((s.message_id, s.source_sentence))
+        other.status = "merged"
+        other.merged_into_id = target.id
+    db.commit()
+    return _detail(_get(db, project, requirement_id))
