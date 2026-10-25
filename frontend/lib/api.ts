@@ -277,3 +277,72 @@ export function listMessages(projectId: number | string, filters: MessageFilters
 export function deleteMessage(projectId: number | string, messageId: number) {
   return apiFetch<void>(`/projects/${projectId}/messages/${messageId}`, { method: "DELETE" });
 }
+
+// ---------- Requirements ----------
+
+export const REQUIREMENT_STATUSES = ["suggested", "accepted", "edited", "rejected", "merged"] as const;
+export type RequirementStatus = (typeof REQUIREMENT_STATUSES)[number];
+export type RequirementType = "functional" | "non_functional";
+export type NfrCategory = "performance" | "security" | "usability" | "reliability" | "other";
+
+export type RequirementVersion = {
+  version: number;
+  statement: string;
+  type: RequirementType;
+  nfr_category: NfrCategory | null;
+  actor: string;
+  confidence: number | null; // AI confidence 0-1; null for versions written by a user
+  origin: "ai" | "user";
+  created_by_id: number | null;
+  created_at: string;
+};
+
+export type RequirementSource = {
+  message_id: number;
+  source_sentence: string; // exactly as the client wrote it
+  source: string;
+  channel: string;
+  author: string;
+  sent_at: string;
+};
+
+export type Requirement = {
+  id: number;
+  code: string;
+  origin: "ai" | "user";
+  status: RequirementStatus;
+  merged_into_id: number | null;
+  created_at: string;
+  updated_at: string;
+  current: RequirementVersion;
+  version_count: number;
+  sources: RequirementSource[];
+};
+
+export type ExtractResult = {
+  messages_processed: number;
+  messages_small_talk: number;
+  messages_remaining: number;
+  requirements_created: number;
+  llm_calls: number;
+  error: string | null;
+};
+
+// Reads messages not processed yet; force=true reads all again (only untouched AI suggestions are replaced)
+export function extractRequirements(projectId: number | string, options: { force?: boolean } = {}) {
+  return apiFetch<ExtractResult>(`/projects/${projectId}/requirements/extract`, {
+    method: "POST",
+    body: json({ force: options.force ?? false }),
+  });
+}
+
+export function listRequirements(
+  projectId: number | string,
+  filters: { status?: RequirementStatus; type?: RequirementType } = {},
+) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) params.set(key, value);
+  }
+  return apiFetch<Requirement[]>(`/projects/${projectId}/requirements?${params}`);
+}

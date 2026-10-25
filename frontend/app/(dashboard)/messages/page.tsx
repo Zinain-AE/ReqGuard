@@ -5,8 +5,17 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import NoProjectSelected from "@/components/NoProjectSelected";
 import SourceBadge, { sourceLabel } from "@/components/SourceBadge";
-import { ErrorBanner, errorText, inputClass, secondaryButton } from "@/components/ui";
-import { MESSAGE_SOURCES, deleteMessage, listMessages, type Message, type MessageFilters, type MessagePage } from "@/lib/api";
+import { ErrorBanner, errorText, inputClass, primaryButton, secondaryButton } from "@/components/ui";
+import {
+  MESSAGE_SOURCES,
+  deleteMessage,
+  extractRequirements,
+  listMessages,
+  type ExtractResult,
+  type Message,
+  type MessageFilters,
+  type MessagePage,
+} from "@/lib/api";
 import { useSelectedProject } from "@/lib/selectedProject";
 
 const PAGE_SIZE = 50;
@@ -127,6 +136,8 @@ function MessagesView({ projectId }: { projectId: string }) {
 
   return (
     <>
+      <ExtractRequirements projectId={projectId} />
+
       <div className="mt-6 grid gap-3 rounded-2xl border border-white/10 bg-zinc-900/60 p-4 sm:grid-cols-2 lg:grid-cols-[10rem_1fr_1fr_9.5rem_9.5rem_auto]">
         <FilterField label="Source" htmlFor="f-source">
           <select
@@ -289,6 +300,92 @@ function MessagesView({ projectId }: { projectId: string }) {
         />
       )}
     </>
+  );
+}
+
+function plural(n: number, word: string) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+// Runs AI requirement extraction on messages not read yet (or all again, when asked)
+function ExtractRequirements({ projectId }: { projectId: string }) {
+  const [running, setRunning] = useState(false);
+  const [includeProcessed, setIncludeProcessed] = useState(false);
+  const [result, setResult] = useState<ExtractResult | null>(null);
+  const [error, setError] = useState("");
+
+  async function run() {
+    if (
+      includeProcessed &&
+      !confirm(
+        "Read all messages again?\n\nAI suggestions that nobody has reviewed yet are replaced. " +
+          "Accepted, edited, rejected and merged requirements are kept.",
+      )
+    )
+      return;
+    setRunning(true);
+    setError("");
+    setResult(null);
+    try {
+      setResult(await extractRequirements(projectId, { force: includeProcessed }));
+      setIncludeProcessed(false);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 rounded-2xl border border-white/10 bg-zinc-900/60 p-4">
+      <div className="flex flex-wrap items-center gap-4">
+        <button onClick={run} disabled={running} className={primaryButton}>
+          {running ? "Extracting..." : "Extract requirements"}
+        </button>
+        <label className="flex items-center gap-2 text-sm text-zinc-400">
+          <input
+            type="checkbox"
+            checked={includeProcessed}
+            onChange={(e) => setIncludeProcessed(e.target.checked)}
+            disabled={running}
+            className="accent-indigo-500"
+          />
+          Include already processed messages
+        </label>
+        <p className="text-xs text-zinc-500 lg:ml-auto">
+          {running
+            ? "The AI is reading the messages. This can take a minute..."
+            : "The AI reads new messages and suggests requirements for you to review."}
+        </p>
+      </div>
+
+      {error && (
+        <div className="mt-3">
+          <ErrorBanner message={error} />
+        </div>
+      )}
+      {result && (
+        <div className="mt-3 space-y-2">
+          {result.error && <ErrorBanner message={`Stopped early: ${result.error}`} />}
+          <p className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3.5 py-2.5 text-sm text-emerald-200">
+            {result.messages_processed === 0 && !result.error ? (
+              "No new messages to read. Tick “Include already processed messages” to read them again."
+            ) : (
+              <>
+                Read {plural(result.messages_processed, "message")}
+                {result.messages_small_talk > 0 && ` (${result.messages_small_talk} only small talk)`},{" "}
+                found {plural(result.requirements_created, "new requirement")}.
+                {result.messages_remaining > 0 &&
+                  ` ${plural(result.messages_remaining, "message")} still waiting: click Extract again.`}{" "}
+                <Link href="/requirements" className="font-medium text-emerald-100 underline-offset-2 hover:underline">
+                  View requirements →
+                </Link>
+              </>
+            )}
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 
