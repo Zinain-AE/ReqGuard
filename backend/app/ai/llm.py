@@ -1,0 +1,237 @@
+"""Provider-agnostic LLM client (CLAUDE.md rule 3). Every LLM call in the app goes through here.
+
+- `complete_json(prompt_name, variables, schema)` loads `app/ai/prompts/<prompt_name>.md`, fills in
+  `{{variable}}` placeholders, asks for JSON only, validates the answer with the Pydantic `schema`,
+  retries once when the answer is invalid, and raises `LLMError` with a clear message after that.
+- Providers only turn a prompt into text. Add a new provider as one more class in `PROVIDERS`.
+- Logged per call: prompt name, provider, model, attempt, tokens and latency. Never the API key,
+  and never the prompt or answer text (it contains client messages).
+"""
+
+import json
+import logging
+import re
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, ClassVar, Protocol, TypeVar
+
+import httpx
+from pydantic import BaseModel, ValidationError
+
+from app.connectors.http import ConnectorError, json_body, send
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+# LLM answers can take a while (long batches, "thinking" models)
+TIMEOUT = httpx.Timeout(120.0)
+
+T = TypeVar("T", bound=BaseModel)
+
+
+class LLMError(Exception):
+    """The LLM call failed in a way the user can understand (bad key, rate limit, invalid answer...)."""
+
+
+class LLMNotConfiguredError(LLMError):
+    """LLM_PROVIDER, LLM_MODEL or LLM_API_KEY is missing or unsupported."""
+
+
+@dataclass
+class LLMResponse:
+    text: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+class LLMProvider(Protocol):
+    name: str
+    model: str
+
+    def generate(self, prompt: str) -> LLMResponse: ...
+
+
+class GeminiProvider:
+    """Google Gemini through its REST API (generateContent). The key is sent in a header, never in the URL."""
+
+    name: ClassVar[str] = "gemini"
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+
+    def __init__(self, model: str, api_key: str, client: httpx.Client | None = None):
+        self.model = model
+        self._api_key = api_key
+        self.client = client or httpx.Client(timeout=TIMEOUT)
+
+    def _safe(self, text: str) -> str:
+        return text.replace(self._api_key, "***") if self._api_key else text
+
+    def generate(self, prompt: str) -> LLMResponse:
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
+        }
+        try:
+            response = send(
+                self.client,
+                "POST",
+                f"{self.BASE_URL}/models/{self.model}:generateContent",
+                service="Gemini",
+                # Error statuses are read here, so the message can quote Gemini's own explanation
+                allow_status=tuple(range(400, 600)),
+                headers={"x-goog-api-key": self._api_key},
+                json=body,
+            )
+            data = json_body(response, "Gemini")
+        except ConnectorError as exc:
+            raise LLMError(self._safe(str(exc))) from None
+
+        if response.status_code >= 400:
+            detail = (data.get("error") or {}).get("message", "") if isinstance(data, dict) else ""
+            hint = f": {detail}" if detail else ""
+            raise LLMError(self._safe(f"Gemini returned an error (HTTP {response.status_code}){hint}"))
+
+        candidates = data.get("candidates") or []
+        parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+        if not text:
+            reason = (data.get("promptFeedback") or {}).get("blockReason") or (
+                candidates[0].get("finishReason") if candidates else None
+            )
+            raise LLMError(f"Gemini returned no answer{f' ({reason})' if reason else ''}.")
+
+        usage = data.get("usageMetadata") or {}
+        output = usage.get("candidatesTokenCount")
+        if output is not None and usage.get("thoughtsTokenCount"):
+            output += usage["thoughtsTokenCount"]
+        return LLMResponse(text=text, input_tokens=usage.get("promptTokenCount"), output_tokens=output)
+
+
+PROVIDERS: dict[str, type] = {"gemini": GeminiProvider}
+
+
+# ---------- prompts ----------
+
+_PLACEHOLDER = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+
+def load_prompt(name: str) -> str:
+    path = PROMPTS_DIR / f"{name}.md"
+    if not path.is_file():
+        raise FileNotFoundError(f"Prompt not found: app/ai/prompts/{name}.md")
+    return path.read_text(encoding="utf-8")
+
+
+def render_prompt(name: str, variables: dict[str, Any], schema: type[BaseModel]) -> str:
+    """Prompt text with `{{name}}` placeholders filled in and the JSON output format appended.
+
+    Strings are inserted as they are; other values as JSON (non-ASCII kept, so Bangla stays readable).
+    """
+
+    def fill(match: re.Match) -> str:
+        key = match.group(1)
+        if key not in variables:
+            raise KeyError(f"Prompt '{name}' needs the variable '{key}'")
+        value = variables[key]
+        return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, indent=1)
+
+    text = _PLACEHOLDER.sub(fill, load_prompt(name)).rstrip()
+    schema_json = json.dumps(schema.model_json_schema(), indent=1)
+    return (
+        f"{text}\n\n## Output format\n"
+        "Answer with one JSON object only, with no other text before or after it. "
+        f"It must match this JSON Schema:\n```json\n{schema_json}\n```\n"
+    )
+
+
+# ---------- answers ----------
+
+_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
+
+
+class InvalidAnswer(Exception):
+    """The answer is not JSON, or does not match the schema. The message holds no answer text."""
+
+
+def parse_answer(text: str, schema: type[T]) -> T:
+    cleaned = text.strip()
+    fenced = _FENCE.match(cleaned)
+    if fenced:
+        cleaned = fenced.group(1)
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise InvalidAnswer(f"not valid JSON ({exc.msg} at position {exc.pos})") from None
+    try:
+        return schema.model_validate(data)
+    except ValidationError as exc:
+        problems = "; ".join(f"{'.'.join(map(str, e['loc'])) or 'answer'}: {e['msg']}" for e in exc.errors()[:5])
+        raise InvalidAnswer(f"does not match the schema ({problems})") from None
+
+
+RETRY_NOTE = (
+    "\n\n## Your previous answer was rejected\n"
+    "It was {reason}. Answer again with one JSON object only that matches the schema above.\n"
+)
+
+
+class LLMClient:
+    """Asks a provider for JSON and validates it. Tests replace this with a fake."""
+
+    def __init__(self, provider: LLMProvider):
+        self.provider = provider
+
+    def complete_json(self, prompt_name: str, variables: dict[str, Any], schema: type[T]) -> T:
+        prompt = render_prompt(prompt_name, variables, schema)
+        attempt_prompt = prompt
+        for attempt in (1, 2):
+            response = self._call(prompt_name, attempt_prompt, attempt)
+            try:
+                return parse_answer(response.text, schema)
+            except InvalidAnswer as exc:
+                logger.warning("llm invalid answer prompt=%s attempt=%d: %s", prompt_name, attempt, exc)
+                attempt_prompt = prompt + RETRY_NOTE.format(reason=exc)
+        raise LLMError("The AI returned an invalid answer twice. Try again; if it keeps failing, try another model.")
+
+    def _call(self, prompt_name: str, prompt: str, attempt: int) -> LLMResponse:
+        started = time.perf_counter()
+        response = self.provider.generate(prompt)
+        logger.info(
+            "llm call prompt=%s provider=%s model=%s attempt=%d input_tokens=%s output_tokens=%s latency_ms=%d",
+            prompt_name,
+            self.provider.name,
+            self.provider.model,
+            attempt,
+            response.input_tokens,
+            response.output_tokens,
+            (time.perf_counter() - started) * 1000,
+        )
+        return response
+
+
+def get_llm() -> LLMClient:
+    """The LLM client configured in backend/.env. Errors name the missing variables, never their values."""
+    missing = [
+        name
+        for name, value in (
+            ("LLM_PROVIDER", settings.llm_provider),
+            ("LLM_MODEL", settings.llm_model),
+            ("LLM_API_KEY", settings.llm_api_key),
+        )
+        if not (value or "").strip()
+    ]
+    if missing:
+        raise LLMNotConfiguredError(f"The LLM is not configured. Set {', '.join(missing)} in backend/.env.")
+    provider_name = settings.llm_provider.strip().lower()
+    provider_cls = PROVIDERS.get(provider_name)
+    if provider_cls is None:
+        raise LLMNotConfiguredError(
+            f"LLM_PROVIDER '{provider_name}' is not supported. Supported: {', '.join(sorted(PROVIDERS))}."
+        )
+    return LLMClient(provider_cls(model=settings.llm_model.strip(), api_key=settings.llm_api_key.strip()))
+
+
+def complete_json(prompt_name: str, variables: dict[str, Any], schema: type[T]) -> T:
+    """Shortcut for `get_llm().complete_json(...)`."""
+    return get_llm().complete_json(prompt_name, variables, schema)

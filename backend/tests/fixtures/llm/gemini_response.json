@@ -1,0 +1,21 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {"text": "{\"answer\": \"লগইন পেজে OTP লাগবে\", \"score\": 0.9}"}
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 120,
+    "candidatesTokenCount": 18,
+    "thoughtsTokenCount": 40,
+    "totalTokenCount": 178
+  },
+  "modelVersion": "gemini-2.5-flash"
+}
