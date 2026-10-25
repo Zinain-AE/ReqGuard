@@ -31,7 +31,8 @@ from app.schemas.extraction import ExtractedRequirement, ExtractionAnswer, Extra
 logger = logging.getLogger(__name__)
 
 PROMPT = "extract_requirements"
-MAX_MESSAGES_PER_RUN = 200
+# Keeps one request well under the frontend proxy's ~5 minute wait; the result says how many are left
+MAX_MESSAGES_PER_RUN = 100
 MAX_BATCH_MESSAGES = 15
 MAX_BATCH_CHARS = 6000
 CONTEXT_CHARS = 300
