@@ -22,6 +22,7 @@ import {
   type Proposal,
   type RequirementDetail,
 } from "@/lib/api";
+import { answersChanged } from "@/lib/newAnswers";
 import { wordDiff } from "@/lib/wordDiff";
 import { CATEGORY_LABELS } from "./ValidationFindings";
 import { formatTime } from "./labels";
@@ -62,7 +63,10 @@ export default function Clarifications({
     if (marked.current || !detail.answers.some((a) => a.seen_at === null)) return;
     marked.current = true;
     markAnswersSeen(projectId, detail.id)
-      .then((updated) => onSeen.current(updated))
+      .then((updated) => {
+        onSeen.current(updated);
+        answersChanged();
+      })
       .catch(() => {
         marked.current = false; // tried again next time
       });
