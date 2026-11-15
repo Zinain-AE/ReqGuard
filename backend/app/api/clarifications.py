@@ -325,7 +325,7 @@ def accept_proposal(
     statement = body.statement if body and body.statement else proposal.statement
     if not statement:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="The AI found not enough information for a new statement. Write one to accept.",
         )
     version = add_user_version(db, project, requirement, user, {"statement": statement}, llm)
@@ -395,7 +395,7 @@ def public_answers(token: str, body: PublicAnswers, request: Request, db: DbSess
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="An answer is for a question that is not on this page.")
     given = {a.question_id: a.text for a in body.answers if a.text.strip()}
     if not given:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Please answer at least one question.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Please answer at least one question.")
     at = utcnow()
     # Closing the link first, only if still open, so two submissions at the same time cannot both get in
     closed = db.execute(
