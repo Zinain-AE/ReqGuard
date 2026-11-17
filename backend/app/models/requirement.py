@@ -126,7 +126,7 @@ class Requirement(Base):
     )
     # Step 9: the task made for it once it was approved and grouped
     task: Mapped["Task | None"] = relationship(  # noqa: F821
-        back_populates="requirement", uselist=False, cascade="all, delete-orphan", passive_deletes=True
+        back_populates="requirement", uselist=False, cascade="all", passive_deletes=True
     )
 
     @property
