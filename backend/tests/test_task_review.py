@@ -150,3 +150,18 @@ def test_filters(client, project, team, tasks):
     data = board(client, project, "?status=assigned")
     assert data["total_tasks"] == 4 and data["modules"] == ["Payments"]
     assert len(data["workload"]) == 3
+
+
+def test_removing_a_member_unassigns_their_open_tasks(client, project, team, tasks):
+    pay, sales = tasks["REQ-001"], tasks["REQ-002"]
+    call(client, project, "POST", f"/tasks/{pay['id']}/suggestion/accept")  # Karim
+    assert sales["suggestion"]["member"]["name"] == "Rahim"
+    assert call(client, project, "DELETE", f"/team/{team['Karim']}").status_code == 204
+    assert call(client, project, "DELETE", f"/team/{team['Rahim']}").status_code == 204
+    after = tasks_by_requirement(client, project)
+    assert after["REQ-001"]["assignee"] is None and after["REQ-001"]["status"] == "suggested"
+    assert after["REQ-002"]["suggestion"] is None
+    res = call(client, project, "POST", "/tasks/suggest").json()
+    assert res["suggested"] == 3  # REQ-004 was already suggested to Mina
+    after = tasks_by_requirement(client, project)
+    assert {t["suggestion"]["member"]["name"] for t in after.values()} == {"Mina"}  # the only member left
