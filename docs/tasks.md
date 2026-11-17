@@ -76,3 +76,5 @@ it. Plan: [plans/step-9-plan.md](plans/step-9-plan.md).
 - **Jira assignee:** Jira needs an account id to assign an issue, so ReqGuard writes the assignee's name in the
   description and leaves the Jira assignee empty.
 - **Requirement panel:** a "Task" line shows the task code, status, assignee and "needs review".
+- **Removing a team member:** their assigned and in-progress tasks go back to "not assigned", and their pending
+  suggestions are cleared, so "Suggest assignees" can suggest someone else.
