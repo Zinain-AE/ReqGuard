@@ -164,3 +164,7 @@ def make_user(client, outbox):
         return res.json(), {"Authorization": f"Bearer {token}"}
 
     return _make
+
+
+# tests/fixtures/repo is a sample repository read by the Step 10 parser; its tests are data, not this suite's tests
+collect_ignore = ["fixtures"]
