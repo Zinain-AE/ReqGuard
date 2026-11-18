@@ -79,6 +79,7 @@ def upgrade() -> None:
         sa.Column("last_analyzed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_result", JSON, nullable=True),
         sa.Column("pulls_synced_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("branches", JSON, server_default="[]", nullable=False),
         *_timestamps(),
         _fk(t, "project_id", "projects", "CASCADE"),
         sa.PrimaryKeyConstraint("id", name=op.f(f"pk_{t}")),

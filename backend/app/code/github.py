@@ -242,6 +242,8 @@ class GitHubClient:
     def list_pulls_since(self, cursor: datetime | None) -> list[PullInfo]:
         """Pull requests (open and closed), most recently updated first, until one not updated after `cursor`."""
         pulls: list[PullInfo] = []
+        if cursor is not None and cursor.tzinfo is None:
+            cursor = cursor.replace(tzinfo=UTC)  # SQLite gives naive UTC times
         params = {"state": "all", "sort": "updated", "direction": "desc", "per_page": 100}
         for page in self._pages(f"{self.repo_path}/pulls", params, max_pages=10):
             for item in page:

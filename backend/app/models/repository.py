@@ -48,6 +48,8 @@ class Repository(Base):
     last_result: Mapped[dict | None] = mapped_column(JsonType)
     # GitHub's updated_at of the newest pull request read so far; older ones are not asked for again
     pulls_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Branches at the last analysis: [{"name", "sha"}] (branch names can carry a requirement ID)
+    branches: Mapped[list[dict]] = mapped_column(JsonType, default=list, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
