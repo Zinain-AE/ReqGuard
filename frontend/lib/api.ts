@@ -2,6 +2,8 @@
 // Requests go to the same-origin route /api/backend/<path>, which adds the login token
 // (kept in an httpOnly cookie) and forwards to FastAPI. See app/api/backend/[...path]/route.ts.
 
+import { messageQuery } from "./messageQuery";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -396,11 +398,9 @@ export type MessageFilters = {
 };
 
 export function listMessages(projectId: number | string, filters: MessageFilters = {}) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
-    if (value !== undefined) params.set(key, String(value));
-  }
-  return apiFetch<MessagePage>(`/projects/${projectId}/messages?${params}`);
+  // Empty filters and half-typed dates are left out (an empty date_from used to fail the whole list)
+  const query = messageQuery(filters).toString();
+  return apiFetch<MessagePage>(`/projects/${projectId}/messages${query ? `?${query}` : ""}`);
 }
 
 // Retry: queue a voice note that was not transcribed again
